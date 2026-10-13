@@ -1,0 +1,27 @@
+# Data: photos of real people and community text. Local only, never commit.
+data/
+
+# Secrets (API keys, forum session cookies)
+.env
+.env.*
+!.env.example
+
+# Ranking app: chunks and results on an annotator's computer
+apps/ranking/chunks/
+apps/ranking/results/
+apps/ranking/.venv/
+
+# Notebook state and model outputs (outputs belong in data/ or Kaggle, never in git)
+.ipynb_checkpoints/
+out/
+
+# Python
+.venv/
+.venv-ml/
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,20 @@
+# Image filters: which detectors to combine, and how (python -m src.filters vote|evaluate --task T).
+# Add a model here once its scores exist in data/filters/<task>/<model>.jsonl.
+#   method:     mean | weighted | max | majority
+#   thresholds: per model, used by "majority" and by the per-model report (default 0.5)
+#   weights:    per model, used by "weighted" (default 1)
+#   threshold:  on the combined score; an image at or above it is flagged
+
+[nsfw]
+models = []
+method = "majority"
+threshold = 0.5
+thresholds = {}
+weights = {}
+
+[watermark]
+models = []
+method = "majority"
+threshold = 0.5
+thresholds = {}
+weights = {}

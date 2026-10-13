@@ -1,0 +1,9 @@
+# Model libraries for the later stages (filters, instructions, features, scorer, editors).
+# Kaggle images already include most of them. Locally they are only for small smoke tests
+# (on an Intel Mac: Python 3.11 with torch==2.2.2, torchvision==0.17.2, numpy<2, transformers<5).
+-r requirements.txt
+torch
+torchvision
+transformers
+onnxruntime
+open_clip_torch
