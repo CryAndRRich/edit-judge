@@ -1,8 +1,11 @@
-"""LLM/VLM analysis of the edit requests (PROJECT.md Part II Steps 1a, 2 and 4): is it an edit request, a short
-clean instruction, its parts, the operations and subject, ambiguity, language. The output of every model goes to
-data/instructions/<model>/analyses.jsonl, one RequestAnalysis per sample (schema.py).
+"""Request analysis with open VLMs, following RealEdit directly (PROJECT.md Part II Steps 1a, 2 and 4): for each
+request, one call returns the simplified instruction (or "humorous") and RealEdit's "operation subject"
+categories, one per task in the request.
 
-- prompts/: prompt templates with a version number (<name>_v<k>.txt), loaded by prompts.load();
-- clients/: one class per model or API, all with the same `generate` method (clients/base.py).
-The raw request text is always kept: cleaned instructions are never a training signal.
+- schema.py: the result and RealEdit's label sets; parse.py: reading the model's answer;
+- prompts/: versioned prompt files (analyze_v1 = RealEdit's two prompts in one call);
+- clients/: open VLMs (Qwen2.5-VL 3B and 7B) with one interface;
+- run.py: the resumable runner; stats.py: distribution vs RealEdit and agreement between runs.
+Results: data/instructions/<client>/<prompt>.jsonl. The raw request is always kept; simplified instructions are
+never used as a training signal.
 """

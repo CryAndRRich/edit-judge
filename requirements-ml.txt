@@ -7,3 +7,4 @@ torchvision
 transformers
 onnxruntime
 open_clip_torch
+accelerate

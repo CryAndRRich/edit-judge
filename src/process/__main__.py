@@ -4,6 +4,7 @@
     python -m src.process prune [--source S ...]       delete raw files of decided candidates
     python -m src.process cycle --source S [--batch N] [--min-free-gb G] [--max-minutes M] [--round-minutes R]
     python -m src.process normalize [--max-side PX] [--quality Q] [--workers N] [--dry-run]
+    python -m src.process pack [--out PATH]          zip the data needed on Kaggle (private dataset)
 """
 
 import argparse
@@ -17,7 +18,7 @@ from .build import MIN_EDITS, MIN_SIDE, Builder, prune
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m src.process", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["build", "prune", "cycle", "normalize"])
+    parser.add_argument("command", choices=["build", "prune", "cycle", "normalize", "pack"])
     parser.add_argument("--dry-run", action="store_true", help="build, normalize: report without writing")
     parser.add_argument("--rebuild", action="store_true",
                         help="build: recreate data/samples from all of data/raw/ (only valid while no raw files were pruned)")
@@ -34,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-side", type=int, default=1024, help="normalize: longest image side, in px")
     parser.add_argument("--quality", type=int, default=92, help="normalize: JPEG quality")
     parser.add_argument("--workers", type=int, help="normalize: parallel processes (default: CPU count - 1)")
+    parser.add_argument("--out", help="pack: zip file to write (default: data/exports/editjudge-data.zip)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 
@@ -44,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
             write=not args.dry_run, rebuild=args.rebuild)
     elif args.command == "prune":
         stats = prune(args.source)
+    elif args.command == "pack":
+        from pathlib import Path
+
+        from .pack import pack
+        stats = pack(Path(args.out) if args.out else None)
     elif args.command == "normalize":
         from .normalize import normalize
         stats = normalize(args.max_side, args.quality, args.workers, args.dry_run)

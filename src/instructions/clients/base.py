@@ -1,25 +1,21 @@
-"""The interface every LLM/VLM client implements."""
+"""The interface every VLM client implements."""
 
-import json
-import re
 from pathlib import Path
 
 
 class Client:
     name: str = ""          # short unique name; also the output folder in data/instructions/
-    model_id: str = ""      # Hugging Face ID or API model name, with version
+    model_id: str = ""      # Hugging Face ID, with revision when pinned
+    batch_size: int = 1
 
     def load(self, device: str) -> None:
-        """Load a local model, or check the API key. Called once before generate()."""
-
-    def generate(self, prompt: str, images: list[Path] | None = None, max_tokens: int = 512) -> str:
-        """The model's text answer to `prompt`, optionally looking at `images`."""
+        """Load the model onto `device`. Called once before generating."""
         raise NotImplementedError
 
+    def generate(self, prompt: str, image: Path | None = None, max_tokens: int = 256) -> str:
+        """The model's answer to `prompt`, looking at `image` (greedy decoding, so runs are repeatable)."""
+        raise NotImplementedError
 
-def parse_json(text: str) -> dict:
-    """The first JSON object in a model answer (models often wrap it in prose or code fences)."""
-    match = re.search(r"\{.*\}", text, re.S)
-    if not match:
-        raise ValueError("no JSON object in the answer")
-    return json.loads(match.group(0))
+    def generate_batch(self, prompts: list[str], images: list[Path | None], max_tokens: int = 256) -> list[str]:
+        """Answers for several requests at once; clients that can batch override this."""
+        return [self.generate(p, i, max_tokens) for p, i in zip(prompts, images)]

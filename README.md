@@ -11,7 +11,7 @@ The work is split into stages (the plan follows the course project proposal):
 |---|---|---|
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 ranked) |
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | Framework ready |
-| 2. Request analysis with an LLM/VLM: clean, split and classify the requests | `src/instructions` | Framework ready |
+| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Code ready, not run |
 | 3. Features and the learned scorer | `src/features`, `src/scorer` | Pair loader and split ready |
 | 4. Editing models per operation, and their benchmark | `src/editors` | Planned |
 | 5. The editing assistant | `src/assistant` | Planned |
@@ -28,7 +28,7 @@ src/                        Python package (run as `python -m src.<module>`)
   filters/                  detector interface and runner, voting, evaluation
     nsfw/                   sensitive-content detectors, one file each
     watermark/              watermark detectors, one file each
-  instructions/             request analysis: schema and label sets, prompts/ (versioned), clients/ (LLM/VLM)
+  instructions/             request analysis (RealEdit): label sets, prompts/ (versioned), clients/ (VLMs), runner
   features/                 per-edit features for the scorer
   scorer/                   preference pairs and splits (data.py), scorer models and evaluation
   editors/                  editing-model wrappers and benchmark
@@ -66,9 +66,12 @@ Heavy work (detectors over the whole dataset, LLM/VLM inference, features, editi
 GPU, never on a laptop. Without a GPU, model runners refuse more than 20 items (`src/common/device.py`; override
 with `--allow-cpu` only for an approved run).
 
-- The data goes to Kaggle as a **private** dataset shared only with the team (it contains photos of real people).
-- Start from `notebooks/kaggle_template.ipynb`: it sets `EJ_DATA_DIR` to the read-only input and `EJ_OUTPUT_DIR` to
-  `/kaggle/working/out`, so the code runs unchanged and every result lands in one output folder.
+- The data goes to Kaggle as a **private** dataset shared only with the team (it contains photos of real people):
+  `python -m src.process pack` writes `data/exports/editjudge-data.zip` (about 10 GB: samples, provenance, ranking
+  manifests and final rankings; no raw data, no annotator names). Upload it as the dataset `editjudge-data`.
+- Start from `notebooks/kaggle_template.ipynb`: it clones the code from GitHub (the branch you set, so push first),
+  sets `EJ_DATA_DIR` to the read-only input and `EJ_OUTPUT_DIR` to `/kaggle/working/out`, so the code runs unchanged
+  and every result lands in one output folder. Turn on the GPU and internet in the notebook settings.
 - Bring the results back into `data/` (same sub-folders) and record the run (model, version, time) in the pull
   request. Do not commit outputs.
 
@@ -107,6 +110,7 @@ data/
   filters/, instructions/, features/, scorer/, editors/
                                     results of the later stages, one folder per task
   models/                           downloaded model weights
+  exports/editjudge-data.zip        the data packed for Kaggle (`python -m src.process pack`)
   logs/                             run logs
 ```
 
@@ -182,6 +186,7 @@ parsers can be fixed without crawling again), `images/`, and `export/`.
 .venv/bin/python -m src.process prune --source S     # delete raw files of decided candidates
 .venv/bin/python -m src.process cycle --source realedit --max-minutes 60   # streaming collection
 .venv/bin/python -m src.process normalize           # normalize every image (see below)
+.venv/bin/python -m src.process pack                # zip the data for a private Kaggle dataset
 ```
 
 1. **Adapters** (`process/adapters/`) turn each kind of raw data into candidates with the same fields: request
@@ -317,12 +322,32 @@ model enough to pay for the extra time.
 
 ## Request analysis (`src.instructions`)
 
-An LLM or VLM reads each request (and its image) and returns a `RequestAnalysis` (`schema.py`): whether it is an
-edit request, a short clean instruction, its separate parts, the operations (PSR's 15 verbs plus Restore) and
-subjects (RealEdit's list), ambiguity and complexity (1 to 5), humour, references to external content, and the
-language. Prompts are versioned files in `prompts/` (never edited after a run); each model is a client in
-`clients/` with one `generate` method. Results go to `data/instructions/<model>/`. The raw request is always
-kept; cleaned instructions are never used as a training signal.
+Follows RealEdit (Sushko et al., CVPR 2025) directly. For each request, **one call to an open VLM** gets the request
+text, the original image, and RealEdit's two prompts merged into one (`prompts/analyze_v1.txt`, both kept word for
+word except for the JSON answer format):
+
+- **Simplified instruction** (RealEdit Fig. 19): URLs, typos, irrelevant details and thanks removed, the main task
+  summarised; humorous or ambiguous requests become `humorous`.
+- **Categories** (RealEdit Fig. 12): one or more "operation subject" pairs, one per task in the request.
+  Operations: Add, Change-Color, Enhance, Image-Formatting, Open-Ended, Remove, Replace, Restore, Other. Subjects:
+  Animal, Background, Body-Part, Clothing/Accessories, Drawing, Food, Logo, Manmade-Structure, Media, Nature, Person,
+  Text/Patterns, Vehicle, Other. RealEdit's short names ("Add Clothing", "Change Color") are mapped to these.
+
+```bash
+.venv/bin/python -m src.instructions list                                   # clients and prompt versions
+.venv/bin/python -m src.instructions run --client qwen2.5-vl-7b --sample 100  # on Kaggle: fixed subset for tuning
+.venv/bin/python -m src.instructions run --client qwen2.5-vl-7b             # on Kaggle: all requests
+.venv/bin/python -m src.instructions stats --run qwen2.5-vl-7b:analyze_v1   # vs RealEdit's distribution
+.venv/bin/python -m src.instructions agree --run A:analyze_v1 --run B:analyze_v1   # two models or prompts
+```
+
+- **Clients** (`clients/`): open VLMs with one interface (`generate_batch`); Qwen2.5-VL 3B and 7B are registered.
+  Start from `notebooks/instructions_qwen_vl.ipynb` on Kaggle.
+- **Results:** `data/instructions/<client>/<prompt>.jsonl`, one row per request: `instruction`, `categories`
+  (`[{"operation", "subject"}]`), the model's raw answer, and parsing `problems`. Runs resume where they stopped.
+- **Prompts** are versioned files; a version used for a run is never edited (add `analyze_v2.txt` instead). The
+  `--sample N` subset is fixed, so prompt versions and models are compared on the same requests.
+- The raw request is always kept; simplified instructions are never used as a training signal.
 
 ## Scorer data (`src.scorer`)
 
