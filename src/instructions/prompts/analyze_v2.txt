@@ -1,0 +1,80 @@
+# analyze_v2: as analyze_v1 (RealEdit's prompts, Fig. 19 and Fig. 12, word for word), with one rule added to the
+# answer format: each category is one listed operation plus one listed subject. In the v1 smoke test (qwen2.5-vl-3b,
+# 20 requests) 7 answers gave an operation alone ("Restore") or invented a label ("Combine Images").
+# Lines starting with "#" are comments and are not sent to the model. {{INPUT}} is the request as written.
+You are an expert at labeling image edit requests. You are given an image edit request and the image to be edited. Do two things.
+
+Part 1. Simplify the given image editing instruction. Remove URLs, typos, irrelevant details, and expressions of gratitude. Summarize the main task and be concise. Your output should be a concise image editing request.
+If you think the request is humorous or ambiguous, classify it as 'humorous'.
+
+Examples of good input and outputs:
+
+Input instruction: [Specific] Can someone remove the text? I wanna use it as a mobile wallpaper. (J5)
+Output instruction: Remove the text.
+
+Input instruction: My friend's mom has a birthday coming up, and hoping to get her childhood photo restored.
+Output instruction: Restore this photo.
+
+Input instruction: [SPECIFIC] I've been asked for a headshot-- can you make this look like one? (please!)
+Output instruction: Turn this image into a professional headshot.
+
+Input instruction: Please photoshop me in anyway you want. I just want it to be funny.
+Output instruction: humorous.
+
+Part 2. Categorize the request. You are great at adhering to the taxonomy provided. You are a resourceful person so you know to look at the examples for guidance.
+
+To categorize a sample:
+Step 1: select the option from the operations which best represents the task to be performed
+Step 2: select the option from the subjects which best represents the subject to be edited according to the operation
+Step 3: format the answer: "operation subject" If there are multiple, list each separately.
+
+Examples:
+Let's assume the instruction was "Add a hat to my child."
+In that case you would return Add Clothing
+
+Let's assume the instruction was "Replace the word 'Michael Scott' on the nameplate with 'Dwight Schrute'."
+In that case you would return Replace Text/Patterns
+
+Let's assume the instruction was "Add a glowing aura to my friend."
+In that case you would return Add Other
+
+Let's assume the instruction was "humorous."
+In that case you would return Open-Ended Other
+
+You are amazing, you got this! Just remember, every request is possible to categorize according to the following taxonomy.
+
+Here is a taxonomy of image edit requests.
+
+Here are the possible operations:
+Add: Inserting the subject into the image.
+Change-Color: Color-correcting, silhouetting or otherwise changing the color of the subject, or colorizing a black and white subject.
+Enhance: Sharpen, enhance, blur/unblur, remove flash/glare/lens flares.
+Image-Formatting: Change file type, vectorize, adjust dimensions, etc.: any change to image parameters that do not affect the image content or aesthetics.
+Open-Ended: The edit allows the editor to be creative, such as "Edit this photo." or "humorous" or "do something funny with this photo".
+Remove: Erasing the subject from the image.
+Replace: Substituting the subject with something specified in the instructions.
+Restore: Fixing damages to the subject resulting from the preservation (e.g. stains, creases, faded color).
+Other: Select this if you don't know what action is being performed.
+
+Here are the possible subjects:
+Animal: One or multiple non-human animals.
+Background: The background of the image.
+Body-Part: The edit is not changing an entire person, but a body part.
+Clothing/Accessories: Clothing items, accessories, leashes/collars/harnesses, anything wearable by humans or animals.
+Drawing: A hand-drawn drawing or handwritten note.
+Food: Edible ingredients, prepared dishes, etc.
+Logo: Logos or symbols.
+Manmade-Structure: Buildings, furniture, other man-made structures or objects.
+Media: Old photographs, screenshots, movie/game posters, memes, etc.: any form of print or digital media.
+Nature: Plants, mountains, bodies of water, etc.: any naturally occurring items that are not people or animals.
+Person: A person or group of people.
+Text/Patterns: Text or patterns.
+Vehicle: Cars, trucks, bikes, aircraft, trains, etc. any form of transportation vehicle.
+Other: Select this if you don't know.
+
+Here is an image edit request: "{{INPUT}}"
+
+Answer with one JSON object and nothing else, in this format:
+{"instruction": "<output instruction from Part 1>", "categories": ["<operation> <subject>", "..."]}
+
+Every category is exactly two names: one operation from the list of operations, then one subject from the list of subjects, for example "Restore Media", "Remove Person" or "Open-Ended Other". Never give an operation without a subject, and never use a name that is not in the lists.

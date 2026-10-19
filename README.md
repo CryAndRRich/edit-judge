@@ -11,7 +11,7 @@ The work is split into stages (the plan follows the course project proposal):
 |---|---|---|
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 ranked) |
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | Framework ready |
-| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Code ready, not run |
+| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Smoke test run on Kaggle |
 | 3. Features and the learned scorer | `src/features`, `src/scorer` | Pair loader and split ready |
 | 4. Editing models per operation, and their benchmark | `src/editors` | Planned |
 | 5. The editing assistant | `src/assistant` | Planned |
@@ -323,8 +323,9 @@ model enough to pay for the extra time.
 ## Request analysis (`src.instructions`)
 
 Follows RealEdit (Sushko et al., CVPR 2025) directly. For each request, **one call to an open VLM** gets the request
-text, the original image, and RealEdit's two prompts merged into one (`prompts/analyze_v1.txt`, both kept word for
-word except for the JSON answer format):
+text, the original image, and RealEdit's two prompts merged into one (`prompts/analyze_v<k>.txt`, both kept word
+for word except for the JSON answer format; v2 adds that each category is one listed operation plus one listed
+subject):
 
 - **Simplified instruction** (RealEdit Fig. 19): URLs, typos, irrelevant details and thanks removed, the main task
   summarised; humorous or ambiguous requests become `humorous`.
@@ -336,14 +337,19 @@ word except for the JSON answer format):
 ```bash
 .venv/bin/python -m src.instructions list                                   # clients and prompt versions
 .venv/bin/python -m src.instructions run --client qwen2.5-vl-7b --sample 100  # on Kaggle: fixed subset for tuning
-.venv/bin/python -m src.instructions run --client qwen2.5-vl-7b             # on Kaggle: all requests
-.venv/bin/python -m src.instructions stats --run qwen2.5-vl-7b:analyze_v1   # vs RealEdit's distribution
-.venv/bin/python -m src.instructions agree --run A:analyze_v1 --run B:analyze_v1   # two models or prompts
+.venv/bin/python -m src.instructions run --client qwen2.5-vl-7b --max-hours 11   # on Kaggle: all requests
+.venv/bin/python -m src.instructions run --client qwen2.5-vl-3b --shard 0/2   # one shard per GPU (CUDA_VISIBLE_DEVICES)
+.venv/bin/python -m src.instructions stats --run qwen2.5-vl-7b:analyze_v2   # vs RealEdit's distribution
+.venv/bin/python -m src.instructions agree --run A:analyze_v2 --run B:analyze_v2   # two models or prompts
 ```
 
-- **Clients** (`clients/`): open VLMs with one interface (`generate_batch`); Qwen2.5-VL 3B and 7B are registered.
-  Start from `notebooks/instructions_qwen_vl.ipynb` on Kaggle.
-- **Results:** `data/instructions/<client>/<prompt>.jsonl`, one row per request: `instruction`, `categories`
+- **Clients** (`clients/`): open VLMs with one interface (`generate_batch`); Qwen2.5-VL 3B and 7B are registered
+  (bfloat16 on GPUs that support it, else float16). An answer from a batch that is not JSON (float16 can give
+  "!!!!") is asked again alone. Start from `notebooks/instructions_qwen_vl.ipynb` on Kaggle (`STEP` picks the run).
+- **Long runs:** `--shard I/N` runs every N-th request, so each GPU takes one shard (`<prompt>.part-I-of-N.jsonl`);
+  `--max-hours` stops cleanly before Kaggle's 12 h limit, and the next session resumes from the copied results.
+  Measured: qwen2.5-vl-3b, about 2.3 s per request on one T4, so all 17,755 requests take about 6 h on 2 x T4.
+- **Results:** `data/instructions/<client>/<prompt>[.part-I-of-N].jsonl`, one row per request: `instruction`, `categories`
   (`[{"operation", "subject"}]`), the model's raw answer, and parsing `problems`. Runs resume where they stopped.
 - **Prompts** are versioned files; a version used for a run is never edited (add `analyze_v2.txt` instead). The
   `--sample N` subset is fixed, so prompt versions and models are compared on the same requests.

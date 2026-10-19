@@ -1,5 +1,7 @@
 import unittest
 
+from PIL import ImageStat
+
 from tests.helpers import make_dataset  # sets the temporary data folders first
 
 from src.common.dataset import iter_images
@@ -18,7 +20,7 @@ class RedDetector(Detector):
         self.loaded = device
 
     def score(self, images):
-        return [sum(px[0] for px in im.getdata()) / (255 * im.width * im.height) for im in images]
+        return [ImageStat.Stat(im).mean[0] / 255 for im in images]
 
 
 class FilterTests(unittest.TestCase):

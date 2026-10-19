@@ -54,6 +54,8 @@ ALIASES = {
     "body part": "Body-Part", "bodypart": "Body-Part",
     "text": "Text/Patterns", "patterns": "Text/Patterns",
     "manmade structure": "Manmade-Structure", "structure": "Manmade-Structure", "object": "Manmade-Structure",
+    # plain words small models use instead of the taxonomy names
+    "people": "Person", "persons": "Person", "human": "Person", "humans": "Person", "face": "Body-Part",
 }
 
 

@@ -5,7 +5,7 @@ from tests.helpers import make_dataset  # sets the temporary data folders first
 from src.instructions import prompts
 from src.instructions.clients.base import Client
 from src.instructions.parse import parse_answer, split_category
-from src.instructions.run import output_path, run
+from src.instructions.run import output_path, result_files, run
 from src.instructions.stats import agree, kappa, stats
 
 
@@ -22,12 +22,21 @@ class FakeClient(Client):
         return 'Sure:\n```json\n{"instruction": "Remove the text.", "categories": ["Remove Text", "Enhance Media"]}\n```'
 
 
+class BrokenInBatchClient(FakeClient):
+    """Gives "!!!!" for every request in a batch, a good answer when asked alone."""
+    name = "broken"
+
+    def generate_batch(self, prompts, images, max_tokens=256):
+        return ["!" * 50 for _ in prompts]
+
+
 class ParseTests(unittest.TestCase):
     def test_categories_and_aliases(self):
         self.assertEqual(split_category("Change Color Background"), ("Change-Color", "Background"))
         self.assertEqual(split_category("Add Clothing"), ("Add", "Clothing/Accessories"))
         self.assertEqual(split_category("Open-Ended Other"), ("Open-Ended", "Other"))
         self.assertEqual(split_category("Formatting Media"), ("Image-Formatting", "Media"))
+        self.assertEqual(split_category("Remove People"), ("Remove", "Person"))
         self.assertEqual(split_category("Fly Person"), (None, None))
 
     def test_answer(self):
@@ -53,6 +62,7 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("# analyze_v1", text)
         self.assertIn("{{INPUT}}", text)
         self.assertIn("Change-Color: Color-correcting", text)
+        self.assertIn("Never give an operation without a subject", prompts.load("analyze", 2))
 
     def test_run_resume_and_stats(self):
         first = run(FakeClient(), sample=4, device="cpu")
@@ -63,6 +73,24 @@ class RunTests(unittest.TestCase):
         self.assertEqual(s["requests"], 4)
         self.assertEqual(s["operations_percent"]["Remove"]["ours"], 50.0)
         self.assertEqual(agree("fake:analyze_v1", "fake:analyze_v1")["same_categories"], 1.0)
+
+    def test_shards_cover_all_once(self):
+        a = run(FakeClient(), version=2, device="cpu", shard=(0, 2))
+        b = run(FakeClient(), version=2, device="cpu", shard=(1, 2))
+        self.assertEqual(a["analysed"] + b["analysed"], 6)
+        self.assertEqual(len(result_files("fake", "analyze_v2")), 2)
+        self.assertEqual(stats("fake:analyze_v2")["requests"], 6)
+        self.assertEqual(run(FakeClient(), version=2, device="cpu")["analysed"], 0)   # all done, any shard file
+
+    def test_broken_batch_answers_asked_again(self):
+        r = run(BrokenInBatchClient(), sample=4, device="cpu")
+        self.assertEqual((r["retried_alone"], r["with_problems"]), (4, 0))
+
+    def test_time_limit(self):
+        client = FakeClient()
+        client.name = "timed"
+        r = run(client, sample=4, device="cpu", max_hours=0)
+        self.assertEqual((r["analysed"], r["left"]), (0, 4))
 
     def test_kappa(self):
         self.assertAlmostEqual(kappa(["a", "b", "a", "b"], ["a", "b", "a", "b"]), 1.0)

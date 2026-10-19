@@ -1,7 +1,8 @@
 """Qwen2.5-VL (open weights, Apache 2.0 for the 3B and 7B models) through Hugging Face transformers.
 
-Runs on a Kaggle GPU (T4: float16; the 7B model needs about 16 GB, so use 2 x T4 with device_map="auto", or the
-3B model on one T4). Images are limited to MAX_PIXELS so that one request stays a few hundred visual tokens.
+Runs on a Kaggle GPU: bfloat16 where the GPU supports it, else float16 (T4, P100). The 7B model needs about 17 GB,
+so on Kaggle it is spread over 2 x T4 (device_map="auto"); the 3B model fits one T4, so 2 x T4 run two shards.
+Images are limited to MAX_PIXELS so that one request stays a few hundred visual tokens.
 """
 
 from pathlib import Path
@@ -20,12 +21,17 @@ class QwenVL(Client):
         import torch
         from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
-        dtype = torch.float16 if device == "cuda" else torch.float32
+        if device == "cuda":
+            dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+        else:
+            dtype = torch.float32
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.model_id, torch_dtype=dtype, device_map="auto" if device == "cuda" else None).eval()
+            self.model_id, dtype=dtype, device_map="auto" if device == "cuda" else None).eval()
         if device != "cuda":
             self.model.to(device)
-        self.processor = AutoProcessor.from_pretrained(self.model_id, min_pixels=MIN_PIXELS, max_pixels=MAX_PIXELS)
+        # pixel limits as "size" (min_pixels= and max_pixels= are deprecated)
+        self.processor = AutoProcessor.from_pretrained(
+            self.model_id, size={"shortest_edge": MIN_PIXELS, "longest_edge": MAX_PIXELS})
         self.processor.tokenizer.padding_side = "left"      # needed for batched generation
 
     def generate(self, prompt: str, image: Path | None = None, max_tokens: int = 256) -> str:

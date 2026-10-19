@@ -4,7 +4,7 @@ runs (two models, or two prompt versions) on the requests both analysed."""
 from collections import Counter
 
 from ..common.io import read_jsonl
-from .run import output_path
+from .run import result_files
 from .schema import HUMOROUS
 
 # RealEdit test set, Table 5 (operations, % of categorised requests), with the table's short names mapped to the
@@ -14,9 +14,10 @@ REALEDIT_OPERATIONS = {"Remove": 31.9, "Enhance": 14.5, "Add": 12.5, "Change-Col
 
 
 def load_run(run_id: str) -> dict[str, dict]:
-    """run_id is "<client>:<prompt>", e.g. "qwen2.5-vl-7b:analyze_v1"; returns sample_id -> row."""
+    """run_id is "<client>:<prompt>", e.g. "qwen2.5-vl-7b:analyze_v1"; returns sample_id -> row, from the main
+    result file and the shard files."""
     client, prompt = run_id.split(":")
-    return {r["sample_id"]: r for r in read_jsonl(output_path(client, prompt))}
+    return {r["sample_id"]: r for f in result_files(client, prompt) for r in read_jsonl(f)}
 
 
 def stats(run_id: str) -> dict:
@@ -31,6 +32,7 @@ def stats(run_id: str) -> dict:
         "run": run_id,
         "requests": len(rows),
         "with_problems": sum(bool(r["problems"]) for r in rows),
+        "usable": sum(bool(r["instruction"] and r["categories"]) for r in rows),   # instruction and >= 1 category
         "problems": dict(problems.most_common()),
         "humorous": sum(r["instruction"] == HUMOROUS for r in rows),
         "categories_per_request": dict(sorted(Counter(len(r["categories"]) for r in rows).items())),
