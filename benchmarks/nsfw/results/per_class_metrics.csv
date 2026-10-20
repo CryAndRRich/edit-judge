@@ -1,0 +1,16 @@
+model,class,n_images,NSFW_prediction_rate,binary_accuracy,mean_score
+NudeNet-320n,drawings,400,0.0025,0.9975,0.0159
+NudeNet-320n,hentai,400,0.4275,0.4275,0.3510
+NudeNet-320n,neutral,400,0.0275,0.9725,0.0296
+NudeNet-320n,porn,400,0.7100,0.7100,0.5448
+NudeNet-320n,sexy,400,0.2825,0.2825,0.2339
+OpenNSFW2,drawings,400,0.0650,0.9350,0.1120
+OpenNSFW2,hentai,400,0.7725,0.7725,0.7314
+OpenNSFW2,neutral,400,0.0275,0.9725,0.0587
+OpenNSFW2,porn,400,0.8975,0.8975,0.8716
+OpenNSFW2,sexy,400,0.5350,0.5350,0.5413
+MobileNetV2-NSFW,drawings,400,0.0650,0.9350,0.1046
+MobileNetV2-NSFW,hentai,400,0.8150,0.8150,0.7987
+MobileNetV2-NSFW,neutral,400,0.0775,0.9225,0.0900
+MobileNetV2-NSFW,porn,400,0.9700,0.9700,0.9537
+MobileNetV2-NSFW,sexy,400,0.9625,0.9625,0.9513

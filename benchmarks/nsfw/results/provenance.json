@@ -1,0 +1,25 @@
+{
+  "source": "Saved cell outputs in ../Nude.ipynb",
+  "notebook_sha256": "ae2cc1f49c258cf77615b1cbd9b153ccf37e3061f8fe468024755e5525706360",
+  "benchmark_sha256": "261b3cca292d7cd6b31ba92ac20ad93c7336c11bb7779b2012d48a1104457f3b",
+  "dataset": "deepghs/nsfw_detect",
+  "archive": "nsfw_dataset_v1.zip",
+  "sample_seed": 42,
+  "samples_per_class": 400,
+  "n_images": 2000,
+  "nsfw_labels": [
+    "porn",
+    "hentai",
+    "sexy"
+  ],
+  "sfw_labels": [
+    "neutral",
+    "drawings"
+  ],
+  "gpu": "Tesla T4",
+  "batch_size": 1,
+  "warmup_batches": 3,
+  "threshold": 0.5,
+  "precision_note": "CSV values are extracted from notebook display tables, rounded to 4 decimal places for quality and 3 for performance. They are not the full-precision runtime CSV exports.",
+  "raw_per_image_predictions_included": false
+}

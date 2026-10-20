@@ -1,0 +1,4 @@
+model,device,batch_size,parameters,checkpoint_mb,setup_seconds,measured_seconds,wall_seconds,mean_ms_per_image,p50_image_ms,p95_image_ms,images_per_second,process_rss_mb_after
+NudeNet-320n,CUDAExecutionProvider,1,NaN,11.587,0.485,34.632,34.663,17.316,17.178,18.977,57.751,1992.086
+OpenNSFW2,/GPU:0,1,5944514.0,23.099,3.413,391.019,391.057,195.510,194.584,203.597,5.115,2283.066
+MobileNetV2-NSFW,/GPU:0,1,4372677.0,19.471,3.281,16.577,16.614,8.288,8.255,9.387,120.651,2452.738
