@@ -1,0 +1,4 @@
+model,device,batch_size,n_images,measured_seconds,mean_ms_per_image,images_per_second
+Falconsai,cuda,32,2000,31.12,15.56,64.267
+Owen Elliott,cuda,32,2000,24.779,12.39,80.713
+NeMo Curator,cuda,64,2000,134.172,67.086,14.906
