@@ -1,0 +1,248 @@
+{
+  "task": "T-024",
+  "started_at": "2026-10-18T22:11:31.785845+07:00",
+  "config": {
+    "device": "auto",
+    "data_limit_mb": 25.0,
+    "seed": 42,
+    "threshold": 0.5,
+    "output": "reports/latest",
+    "data": "data",
+    "checkpoints": "checkpoints",
+    "threads": 4,
+    "warmup": 8,
+    "resolved_device": "cuda:0"
+  },
+  "environment": {
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "executable": "D:\\new\\.venv-t024\\Scripts\\python.exe",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "cpu": "AMD Ryzen 5 7235HS",
+    "logical_cpus": 8,
+    "versions": {
+      "torch": "2.6.0+cu124",
+      "torchvision": "0.21.0+cu124",
+      "timm": "0.9.16",
+      "ultralytics": "8.3.228",
+      "huggingface_hub": "1.5.0",
+      "numpy": "2.3.5",
+      "Pillow": "12.2.0",
+      "pytest": "9.0.3",
+      "opencv-python": "5.0.0.93",
+      "safetensors": "0.7.0"
+    },
+    "torch_cuda": "12.4",
+    "cuda_available": true,
+    "cudnn": 90100,
+    "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "gpu_memory_bytes": 6438780928,
+    "torch_threads": 4,
+    "interop_threads": 4,
+    "deterministic_algorithms": false,
+    "cudnn_benchmark": false,
+    "matmul_allow_tf32": false,
+    "system_site_packages": "venv inherits existing CUDA torch; see pyvenv.cfg"
+  },
+  "models": {
+    "yolov8n": {
+      "status": "ok",
+      "succeeded": 182,
+      "checkpoint": {
+        "repo": "qfisch/yolov8n-watermark-detection",
+        "filename": "best.pt",
+        "revision": "26ce92a7e777ae955247e5c4a74ee3ea5279924a",
+        "sha256": "f40b75a88079ba9e9dfba3d2c279092a5264a4e36bf3c645ab29e466775c7317",
+        "remote_lfs_sha256": "f40b75a88079ba9e9dfba3d2c279092a5264a4e36bf3c645ab29e466775c7317",
+        "bytes": 6228505,
+        "download_or_cache_s": 0.008935299993027002
+      },
+      "load_s": 0.363288200009265,
+      "adapter": {
+        "classes": {
+          "0": "logo",
+          "1": "text"
+        },
+        "watermark_classes": [
+          0,
+          1
+        ],
+        "conf": 0.001,
+        "imgsz": 640,
+        "class_mapping_evidence": "qfisch model card: watermark detection of both texts and logos; exact checkpoint names logo/text",
+        "preprocess": "PIL RGB + EXIF transpose; Ultralytics letterbox imgsz=640, scale 1/255, no ImageNet normalization",
+        "score": "max confidence over watermark boxes, default 0",
+        "globals": [
+          "dill._dill._load_type",
+          "torch.nn.modules.activation.SiLU",
+          "torch.nn.modules.batchnorm.BatchNorm2d",
+          "torch.nn.modules.container.ModuleList",
+          "torch.nn.modules.container.Sequential",
+          "torch.nn.modules.conv.Conv2d",
+          "torch.nn.modules.loss.BCEWithLogitsLoss",
+          "torch.nn.modules.pooling.MaxPool2d",
+          "torch.nn.modules.upsampling.Upsample",
+          "ultralytics.nn.modules.block.Bottleneck",
+          "ultralytics.nn.modules.block.C2f",
+          "ultralytics.nn.modules.block.DFL",
+          "ultralytics.nn.modules.block.SPPF",
+          "ultralytics.nn.modules.conv.Concat",
+          "ultralytics.nn.modules.conv.Conv",
+          "ultralytics.nn.modules.head.Detect",
+          "ultralytics.nn.tasks.DetectionModel",
+          "ultralytics.utils.IterableSimpleNamespace",
+          "ultralytics.utils.loss.BboxLoss",
+          "ultralytics.utils.loss.v8DetectionLoss",
+          "ultralytics.utils.tal.TaskAlignedAssigner"
+        ],
+        "load_policy": "weights_only=True with explicit allowlist and restricted dill set type shim; stock loader replaced",
+        "model_only_timing": "Ultralytics result.speed[inference] forward timing; distinct from adapter end-to-end"
+      },
+      "warmup_s": 1.072249400007422,
+      "warmup_iterations": 8
+    },
+    "efficientnetv2_b0": {
+      "status": "ok",
+      "succeeded": 182,
+      "checkpoint": {
+        "repo": "qwertyforce/watermark_detection",
+        "filename": "model.pt",
+        "revision": "6114db333950e5d26376961cd9a7a463ea602215",
+        "sha256": "c835dcf80ffa6fd3cb2cedfba95223b5c4243bf59431dfee5889517016a8dff5",
+        "remote_lfs_sha256": "c835dcf80ffa6fd3cb2cedfba95223b5c4243bf59431dfee5889517016a8dff5",
+        "bytes": 23870125,
+        "download_or_cache_s": 0.028349900007015094
+      },
+      "load_s": 0.6378638000023784,
+      "adapter": {
+        "architecture": "timm.models.efficientnet.EfficientNet",
+        "classifier": "Linear(in_features=1280, out_features=1, bias=True)",
+        "output": "one raw logit; apply sigmoid exactly once",
+        "score": "sigmoid(logit); watermark=1 per model card",
+        "preprocess": "Compose(\n    Resize(size=219, interpolation=bicubic, max_size=None, antialias=True)\n    CenterCrop(size=(192, 192))\n    ToTensor()\n    Normalize(mean=tensor([0.4850, 0.4560, 0.4060]), std=tensor([0.2290, 0.2240, 0.2250]))\n)",
+        "data_config": {
+          "input_size": [
+            3,
+            192,
+            192
+          ],
+          "interpolation": "bicubic",
+          "mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "crop_pct": 0.875,
+          "crop_mode": "center"
+        },
+        "embedded_config": {
+          "url": "https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-effv2-weights/tf_efficientnetv2_b0-c7cc451f.pth",
+          "hf_hub_id": "timm/tf_efficientnetv2_b0.in1k",
+          "architecture": "tf_efficientnetv2_b0",
+          "tag": "in1k",
+          "custom_load": false,
+          "input_size": [
+            3,
+            192,
+            192
+          ],
+          "test_input_size": [
+            3,
+            224,
+            224
+          ],
+          "fixed_input_size": false,
+          "interpolation": "bicubic",
+          "crop_pct": 0.875,
+          "crop_mode": "center",
+          "mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "num_classes": 1000,
+          "pool_size": [
+            6,
+            6
+          ],
+          "first_conv": "conv_stem",
+          "classifier": "classifier"
+        },
+        "globals": [
+          "timm.layers.adaptive_avgmax_pool.SelectAdaptivePool2d",
+          "timm.layers.conv2d_same.Conv2dSame",
+          "timm.layers.drop.DropPath",
+          "timm.layers.norm_act.BatchNormAct2d",
+          "timm.models._efficientnet_blocks.ConvBnAct",
+          "timm.models._efficientnet_blocks.EdgeResidual",
+          "timm.models._efficientnet_blocks.InvertedResidual",
+          "timm.models._efficientnet_blocks.SqueezeExcite",
+          "timm.models.efficientnet.EfficientNet",
+          "torch.nn.modules.activation.SiLU",
+          "torch.nn.modules.activation.Sigmoid",
+          "torch.nn.modules.container.Sequential",
+          "torch.nn.modules.conv.Conv2d",
+          "torch.nn.modules.flatten.Flatten",
+          "torch.nn.modules.linear.Identity",
+          "torch.nn.modules.linear.Linear",
+          "torch.nn.modules.pooling.AdaptiveAvgPool2d"
+        ],
+        "load_policy": "weights_only=True with explicit audited class allowlist",
+        "mapping_note": "Author card specifies watermark probability via sigmoid; examples logged without choosing orientation or threshold"
+      },
+      "warmup_s": 0.30053829999815207,
+      "warmup_iterations": 8
+    },
+    "convnext_tiny": {
+      "status": "ok",
+      "succeeded": 182,
+      "checkpoint": {
+        "repo": "boomb0om/watermark-detectors",
+        "filename": "convnext-tiny_watermarks_detector.pth",
+        "revision": "bd472165157f6d14ddcd3b24846ffd828e8fee8c",
+        "sha256": "a83262f23f4fc6e87b0043a3a766e2c6eabcce63e26af78f35d5683d33066866",
+        "remote_lfs_sha256": "a83262f23f4fc6e87b0043a3a766e2c6eabcce63e26af78f35d5683d33066866",
+        "bytes": 113445965,
+        "download_or_cache_s": 0.14382309999200515
+      },
+      "load_s": 0.31129549999604933,
+      "adapter": {
+        "architecture": "ConvNeXt tiny [3,3,9,3], custom 768/512/256/2 head",
+        "preprocess": "RGB, EXIF transpose, Resize(256,256) bilinear, ImageNet normalize",
+        "score": "softmax(logits)[1]",
+        "fp16": false,
+        "load_policy": "weights_only=True, strict state_dict"
+      },
+      "warmup_s": 0.2122979999985546,
+      "warmup_iterations": 8
+    }
+  },
+  "errors": [],
+  "summary": [],
+  "dataset": {
+    "repo": "boomb0om/watermarks-validation",
+    "revision": "d2d22701e18e96abd28fc476e9396501adf87123",
+    "image_bytes": 12562610,
+    "csv_sha256": "5b627a89cfe2caeaa896ca836c382e3ac355f1cc0c421944817123d01027f9e4",
+    "download_or_cache_s": 1.094020200005616
+  },
+  "synthetic": {
+    "status": "ok",
+    "n": 60,
+    "positive": 40,
+    "negative": 20,
+    "combined_image_bytes": 14426408,
+    "font": "Arial Bold, C:/Windows/Fonts/arialbd.ttf",
+    "font_sha256": "e8f4e3baf6cc35fed6fcce3a540e8b39e8f6cda1d22a28f2ec8f526fef7a43f5",
+    "negative_policy": "Unchanged clean backgrounds, JPEG quality 80; no semantic overlays"
+  }
+}

@@ -1,0 +1,10 @@
+﻿.venv-t024/
+data/
+checkpoints/
+__pycache__/
+.pytest_cache/
+.pytest_tmp/
+Ultralytics/
+*.pyc
+.ipynb_checkpoints/
+.virtual_documents/

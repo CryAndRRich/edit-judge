@@ -1,0 +1,95 @@
+{
+  "efficientnetv2_b0": {
+    "architecture": "timm.models.efficientnet.EfficientNet",
+    "classifier": "Linear(in_features=1280, out_features=1, bias=True)",
+    "output": "one raw logit; apply sigmoid exactly once",
+    "score": "sigmoid(logit); watermark=1 per model card",
+    "preprocess": "Compose(\n    Resize(size=219, interpolation=bicubic, max_size=None, antialias=True)\n    CenterCrop(size=(192, 192))\n    ToTensor()\n    Normalize(mean=tensor([0.4850, 0.4560, 0.4060]), std=tensor([0.2290, 0.2240, 0.2250]))\n)",
+    "data_config": {
+      "input_size": [
+        3,
+        192,
+        192
+      ],
+      "interpolation": "bicubic",
+      "mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "std": [
+        0.229,
+        0.224,
+        0.225
+      ],
+      "crop_pct": 0.875,
+      "crop_mode": "center"
+    },
+    "embedded_config": {
+      "url": "https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-effv2-weights/tf_efficientnetv2_b0-c7cc451f.pth",
+      "hf_hub_id": "timm/tf_efficientnetv2_b0.in1k",
+      "architecture": "tf_efficientnetv2_b0",
+      "tag": "in1k",
+      "custom_load": false,
+      "input_size": [
+        3,
+        192,
+        192
+      ],
+      "test_input_size": [
+        3,
+        224,
+        224
+      ],
+      "fixed_input_size": false,
+      "interpolation": "bicubic",
+      "crop_pct": 0.875,
+      "crop_mode": "center",
+      "mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "std": [
+        0.229,
+        0.224,
+        0.225
+      ],
+      "num_classes": 1000,
+      "pool_size": [
+        6,
+        6
+      ],
+      "first_conv": "conv_stem",
+      "classifier": "classifier"
+    },
+    "globals": [
+      "timm.layers.adaptive_avgmax_pool.SelectAdaptivePool2d",
+      "timm.layers.conv2d_same.Conv2dSame",
+      "timm.layers.drop.DropPath",
+      "timm.layers.norm_act.BatchNormAct2d",
+      "timm.models._efficientnet_blocks.ConvBnAct",
+      "timm.models._efficientnet_blocks.EdgeResidual",
+      "timm.models._efficientnet_blocks.InvertedResidual",
+      "timm.models._efficientnet_blocks.SqueezeExcite",
+      "timm.models.efficientnet.EfficientNet",
+      "torch.nn.modules.activation.SiLU",
+      "torch.nn.modules.activation.Sigmoid",
+      "torch.nn.modules.container.Sequential",
+      "torch.nn.modules.conv.Conv2d",
+      "torch.nn.modules.flatten.Flatten",
+      "torch.nn.modules.linear.Identity",
+      "torch.nn.modules.linear.Linear",
+      "torch.nn.modules.pooling.AdaptiveAvgPool2d"
+    ],
+    "load_policy": "weights_only=True with explicit audited class allowlist",
+    "mapping_note": "Author card specifies watermark probability via sigmoid; examples logged without choosing orientation or threshold"
+  },
+  "convnext_tiny": {
+    "architecture": "ConvNeXt tiny [3,3,9,3], custom 768/512/256/2 head",
+    "preprocess": "RGB, EXIF transpose, Resize(256,256) bilinear, ImageNet normalize",
+    "score": "softmax(logits)[1]",
+    "fp16": false,
+    "load_policy": "weights_only=True, strict state_dict"
+  }
+}

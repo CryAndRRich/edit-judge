@@ -1,0 +1,6 @@
+{
+  "dataset/boomb0om/watermarks-validation": "d2d22701e18e96abd28fc476e9396501adf87123",
+  "model/qfisch/yolov8n-watermark-detection": "26ce92a7e777ae955247e5c4a74ee3ea5279924a",
+  "model/qwertyforce/watermark_detection": "6114db333950e5d26376961cd9a7a463ea602215",
+  "model/boomb0om/watermark-detectors": "bd472165157f6d14ddcd3b24846ffd828e8fee8c"
+}

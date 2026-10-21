@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "predictions_total": 728,
+  "neural_models": 3,
+  "model_inference_predictions": 546,
+  "voting_derived_predictions": 182,
+  "per_model_images": 182,
+  "public_images": 122,
+  "synthetic_images": 60,
+  "original_and_synthetic_image_bytes": 14426408,
+  "report_preview_bytes": 1833197,
+  "including_report_previews_bytes": 16259605,
+  "failure_previews": 32,
+  "checkpoint_hashes_match_remote": true,
+  "metrics_recomputed": true,
+  "voting_verified": true,
+  "source_hashes_match_run": true,
+  "data_weights_gitignored": true,
+  "tests_log": "................                                                         [100%]\n16 passed in 4.45s\n"
+}
