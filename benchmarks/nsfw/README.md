@@ -20,9 +20,9 @@ Ngưỡng quyết định cố định là **0,5** cho cả ba model.
 | OpenNSFW2 | 195,510 | 194,584 | 203,597 | 5,115 | 391,019 |
 | MobileNetV2-NSFW | 8,288 | 8,255 | 9,387 | 120,651 | 16,577 |
 
-![Confusion matrices](results/confusion_matrices.png)
+![Confusion matrices](results_NDM/confusion_matrices.png)
 
-![ROC và Precision–Recall](results/roc_pr_curves.png)
+![ROC và Precision–Recall](results_NDM/roc_pr_curves.png)
 
 ## Dữ liệu và cách đo
 
@@ -74,11 +74,11 @@ bộ nhớ peak hay mức sử dụng độc lập của từng model.
 | File | Nội dung |
 | --- | --- |
 | [Nude.ipynb](Nude.ipynb) | Notebook đã chạy, kèm output và biểu đồ |
-| [quality_metrics.csv](results/quality_metrics.csv) | Metric và TP/TN/FP/FN của ba model |
-| [performance_metrics.csv](results/performance_metrics.csv) | Thời gian, throughput, thiết bị, kích thước checkpoint và số tham số có sẵn |
-| [per_class_metrics.csv](results/per_class_metrics.csv) | Kết quả theo năm nhãn gốc |
-| [package_versions.csv](results/package_versions.csv) | Phiên bản thư viện của lần chạy |
-| [provenance.json](results/provenance.json) | Nguồn kết quả và fingerprint notebook/benchmark |
+| [quality_metrics.csv](results_NDM/quality_metrics.csv) | Metric và TP/TN/FP/FN của ba model |
+| [performance_metrics.csv](results_NDM/performance_metrics.csv) | Thời gian, throughput, thiết bị, kích thước checkpoint và số tham số có sẵn |
+| [per_class_metrics.csv](results_NDM/per_class_metrics.csv) | Kết quả theo năm nhãn gốc |
+| [package_versions.csv](results_NDM/package_versions.csv) | Phiên bản thư viện của lần chạy |
+| [provenance.json](results_NDM/provenance.json) | Nguồn kết quả và fingerprint notebook/benchmark |
 
 Các CSV trong thư mục `results` được trích từ **bảng output đã lưu trong notebook**:
 chất lượng làm tròn 4 chữ số thập phân, hiệu năng làm tròn 3 chữ số. Chúng chưa
