@@ -27,13 +27,9 @@ Ngưỡng quyết định cố định là **0,5** cho cả ba model.
 | Falconsai | 32 | 31,120 | 15,560 | 64,267 |
 | NeMo Curator | 64 | 134,172 | 67,086 | 14,906 |
 
-![Chất lượng phân loại](results/quality_metrics.png)
+![Confusion matrices](results_LMD/confusion_matrices.png)
 
-![Confusion matrices](results/confusion_matrices.png)
-
-![ROC và Precision–Recall](results/roc_pr_curves.png)
-
-![Hiệu năng](results/performance_metrics.png)
+![ROC và Precision–Recall](results_LMD/roc_pr_curves.png)
 
 ## Nhận xét chính
 
@@ -54,7 +50,6 @@ Với lớp SFW (`neutral`, `drawings`), tỉ lệ dự đoán NSFW là tỉ l�
 | `hentai` (NSFW) | 0,9300 | 0,9650 | 0,9225 |
 | `porn` (NSFW) | 0,9750 | 0,9625 | 1,0000 |
 
-![Tỉ lệ dự đoán NSFW theo lớp](results/per_class_heatmap.png)
 
 - Lớp **`sexy`** là lớp phân hóa model rõ nhất: NeMo Curator nhận diện 98,75%, Owen Elliott 82,00%, Falconsai chỉ 58,00%. Phần lớn FN của Falconsai nằm ở lớp này.
 - Lớp **`drawings`** là điểm yếu của Owen Elliott: 25,25% ảnh vẽ bị báo là NSFW, trong khi Falconsai là 2,00% và NeMo Curator là 3,00%. Phần lớn FP của Owen Elliott đến từ lớp này.
