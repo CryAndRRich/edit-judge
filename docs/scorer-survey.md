@@ -14,8 +14,15 @@ và bản có điểm cao nhất thắng. Cách này giống HPSv3 và EditRewar
 > theo HPSv3.
 
 VLM reward model (EditReward, EditScore) là hướng mở rộng nếu có GPU từ 24 GB trở lên. VLM-as-judge (T-062) là
-baseline để so sánh. Bản chạy thử đã có trong code (`src/scorer`, `notebooks/scorer_pilot.ipynb`). Kết quả sẽ
-được điền vào mục 6 sau khi chạy trên Kaggle.
+baseline để so sánh. Bản chạy thử nằm trong `src/scorer` và `notebooks/scorer_pilot.ipynb`.
+
+**Kết quả pilot (mục 6), chạy trên Kaggle T4 ngày 2026-10-22:**
+
+- Head MLP trên SigLIP đạt **60,4% pairwise accuracy trên test** (khoảng tin cậy 95%: 57,8–62,7%). CLIP-score chỉ
+  đạt 50,6% (48,0–53,1%), gần như ngẫu nhiên. Hai khoảng không chồng nhau, nên **mục tiêu (3) của dự án đạt được
+  trên v1**.
+- Trần của người là 62,9%.
+- Nhãn v1 lệch mạnh về thứ tự upvote/hiển thị: chỉ cần chọn "edit 01 thắng" đã đạt 67,4%.
 
 ---
 
@@ -188,8 +195,99 @@ Các run trong config là các ablation:
 
 ## 6. Kết quả pilot
 
-*Chờ chạy `notebooks/scorer_pilot.ipynb` (STEP = `full`) trên Kaggle. Dán bảng `report.md` vào đây, cùng thời gian
-mỗi ảnh lấy từ `embeddings/*/meta.json`.*
+Lần chạy: `notebooks/scorer_pilot.ipynb`, STEP = `full`, branch `scorer/trung` (commit `b7afbf3`), Kaggle, 1 ×
+Tesla T4, ngày 2026-10-22.
+
+- Phạm vi: 6.996 sample đã rank, 24.308 ảnh (17.312 bản sửa có cặp).
+- Số cặp: dev 2.239, test 2.450.
+- Model được chọn theo dev. Test chỉ đọc một lần.
+
+### 6.1. Bảng kết quả (test, trừ cột dev)
+
+| Model | Loại | Dev | Test (KTC 95%) | Test, cặp chắc chắn | Top-1 (ngẫu nhiên 0,429) | RealEdit | GIER |
+|---|---|---|---|---|---|---|---|
+| `edit-key-order` (01 thắng) | thiên lệch nhãn | 0,695 | **0,674** [0,648; 0,697] | 0,782 | 0,661 | 0,701 | 0,586 |
+| **`mlp-siglip-soft`** | train | 0,603 | **0,604** [0,578; 0,627] | 0,675 | 0,493 | 0,600 | 0,571 |
+| `mlp-all-soft` | train | 0,603 | 0,603 [0,576; 0,627] | 0,661 | 0,509 | 0,596 | 0,579 |
+| `mlp-clip-bt` | train | 0,590 | 0,596 [0,571; 0,620] | 0,646 | 0,508 | 0,591 | 0,584 |
+| `mlp-pickscore-soft` | train | 0,601 | 0,595 [0,569; 0,621] | 0,659 | 0,495 | 0,591 | 0,569 |
+| `mlp-all-uncertainty` | train | 0,606 | 0,593 [0,567; 0,617] | 0,657 | 0,494 | 0,597 | 0,541 |
+| `mlp-clip-soft` | train | 0,587 | 0,587 [0,561; 0,611] | 0,645 | 0,499 | 0,582 | 0,574 |
+| `mlp-siglip-dino-soft` | train | 0,594 | 0,580 [0,550; 0,608] | 0,631 | 0,495 | 0,575 | 0,529 |
+| `clip-l14:edit-original` | zero-shot | 0,523 | 0,570 [0,542; 0,594] | 0,599 | 0,464 | 0,554 | 0,549 |
+| `siglip:edit-original` | zero-shot | 0,510 | 0,553 [0,526; 0,578] | 0,563 | 0,463 | 0,539 | 0,529 |
+| `dinov2:edit-original` | zero-shot | 0,520 | 0,546 [0,519; 0,574] | 0,550 | 0,460 | 0,528 | 0,519 |
+| `linear-sim-all` | train | 0,533 | 0,542 [0,517; 0,565] | 0,561 | 0,450 | 0,525 | 0,551 |
+| `file-bytes` | zero-shot | 0,497 | 0,525 [0,499; 0,550] | 0,546 | 0,434 | 0,512 | 0,539 |
+| `pickscore:edit-request` | zero-shot | 0,529 | 0,514 [0,489; 0,539] | 0,517 | 0,440 | 0,517 | 0,516 |
+| **`clip-l14:edit-request` (CLIP-score)** | zero-shot | 0,518 | **0,506** [0,480; 0,531] | 0,473 | 0,435 | 0,519 | 0,486 |
+| `image-pixels` | zero-shot | 0,510 | 0,506 [0,488; 0,523] | 0,519 | 0,436 | 0,514 | 0,480 |
+| `siglip:edit-request` | zero-shot | 0,487 | 0,470 [0,445; 0,495] | 0,440 | 0,407 | 0,472 | 0,484 |
+
+"Cặp chắc chắn" là các cặp có `p_a` ≥ 0,8 hoặc ≤ 0,2. Các baseline `direction` (cos(e − o, t)) nằm trong khoảng
+0,48–0,52 nên không đưa vào bảng; số liệu đầy đủ nằm trong `report.md`.
+
+**Trần của người (test):** một người rank đồng ý với hai người còn lại, khi hai người đó đồng ý với nhau, trên
+**62,9%** cặp (4.218 phiếu). Mức đồng ý với winner cuối cùng là 74,6%, nhưng con số này bị thổi phồng vì phiếu của
+chính người đó nằm trong nhãn.
+
+**Thời gian embed (T4, fp16, mỗi ảnh):**
+
+| Backbone | Giây/ảnh |
+|---|---|
+| DINOv2-base | 0,005 |
+| PickScore | 0,022 |
+| SigLIP-so400m | 0,054 |
+| CLIP-L/14 | 0,286 |
+
+CLIP-L/14 chạy đầu tiên nên chịu thời gian đọc lạnh 9,5 GB ảnh từ `/kaggle/input`. Các backbone sau đọc từ cache.
+Thời gian train mỗi head trên GPU là 1–6 giây.
+
+### 6.2. Nhận xét
+
+1. **Scorer vượt CLIP-score rõ ràng.** Head tốt nhất hơn CLIP-score khoảng 10 điểm phần trăm, và hai khoảng tin
+   cậy không chồng nhau. Mức 60,4% bằng khoảng 96% trần của người (62,9%). Như vậy scorer đã gần bằng một người
+   rank đơn lẻ.
+2. **Zero-shot với yêu cầu gần như vô dụng.** CLIP, SigLIP và PickScore giữa bản sửa và yêu cầu đều ở mức 47–51%.
+   Có hai lý do:
+   - Mọi bản sửa của một yêu cầu đều "khớp" nội dung yêu cầu gần như nhau, nên cosine không tách được chúng.
+   - Yêu cầu dài bị cắt còn 64–77 token.
+
+   Tín hiệu zero-shot duy nhất có ích là **giống ảnh gốc** (`edit-original`, 55–57%): bản sửa giữ được ảnh gốc
+   thường được chọn.
+3. **Head học chủ yếu từ chính ảnh (đặc trưng `vec`), không từ các cosine.** `linear-sim-all`, chỉ dùng cosine,
+   đạt 54,2%. Các MLP có `e`, `e − o`, `e ⊙ t` đạt 58–60%. Nhiều khả năng scorer đang học "chất lượng/thẩm mỹ của
+   bản sửa" và "mức thay đổi" hơn là "làm đúng yêu cầu".
+4. **Thiên lệch nhãn là vấn đề lớn nhất.**
+   - `edit-key-order` đạt 67,4%, cao hơn mọi scorer, và đạt 78,2% trên các cặp chắc chắn.
+   - Ở RealEdit, một phần là do upvote nằm trong nhãn (finalize cho upvote nửa trọng số).
+   - Ở GIER, số thứ tự không mang ý nghĩa, nhưng 01 vẫn thắng 58,6% vì app hiển thị 01 trước.
+
+   Nghĩa là một phần nhãn đo **thứ tự hiển thị**, không phải chất lượng. Scorer không nhìn thấy số thứ tự nên
+   không học trực tiếp được thiên lệch này. Tuy vậy, trần thực sự của bài toán khó tách ra khỏi thiên lệch. Với
+   v2, **phải xáo thứ tự bản sửa trên app**.
+5. **Overfit nặng.** Epoch tốt nhất thường là 1–4 (early stopping dừng ở epoch 11–29). Train đạt 0,72–0,94 trong
+   khi dev chỉ khoảng 0,60. Head MLP có 10 nghìn đặc trưng đầu vào, nhiều hơn số cặp train.
+6. **Ablation không phân định được.** Các khác biệt đều nhỏ hơn khoảng tin cậy (±2,5 điểm):
+   - Nhãn mềm so với nhãn cứng (`mlp-clip-soft` 0,587, `mlp-clip-bt` 0,596).
+   - Loss uncertainty so với Bradley-Terry (0,593 so với 0,603).
+   - Gộp 4 backbone so với chỉ SigLIP (0,603 so với 0,604).
+   - Thêm DINOv2 không giúp (0,580).
+
+   Với 2.450 cặp test, cần khác biệt cỡ 3 điểm trở lên mới phân biệt được. **SigLIP + head MLP + nhãn mềm** là cấu
+   hình đơn giản nhất trong nhóm dẫn đầu, nên chọn làm mặc định.
+
+### 6.3. Đề xuất cho các bước sau
+
+- **T-061:** giảm overfit trước khi thêm model mới. Ví dụ: tăng weight decay hoặc dropout, giảm `hidden`, giảm
+  chiều embedding bằng PCA, hoặc chọn theo dev loss thay vì dev accuracy. Đồng thời thêm đặc trưng tay của T-060
+  (SSIM, LPIPS, vùng thay đổi, aesthetic) vào φ.
+- **Văn bản:** khi `src/instructions` chạy xong, thay yêu cầu gốc bằng chỉ dẫn rút gọn. Đây là cách duy nhất để
+  thử xem tín hiệu "làm đúng yêu cầu" có tăng không.
+- **Nhãn v2:** xáo thứ tự hiển thị và tách riêng nhãn không có upvote (chỉ team) để đánh giá. Khi dữ liệu train
+  gấp đôi, khoảng tin cậy hẹp lại và overfit cũng giảm.
+- **VLM reward model** (mục 4.2) chỉ đáng thử khi có GPU từ 24 GB. Trước khi fine-tune, nên chạy zero-shot
+  EditReward trên cùng tập test để biết reward model của ảnh AI có chuyển được sang ảnh do cộng đồng sửa không.
 
 ## 7. Kết nối với các task sau
 
