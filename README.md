@@ -12,7 +12,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 ranked) |
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | Framework ready |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Smoke test run on Kaggle |
-| 3. Features and the learned scorer | `src/features`, `src/scorer` | Architecture proposed (`docs/scorer-survey.md`); pilot ready to run on Kaggle |
+| 3. Features and the learned scorer | `src/features`, `src/scorer` | Architecture proposed (`docs/scorer-survey.md`); pilot run: 60.4% test pair accuracy vs 50.6% for CLIP-score |
 | 4. Editing models per operation, and their benchmark | `src/editors` | Planned |
 | 5. The editing assistant | `src/assistant` | Planned |
 
