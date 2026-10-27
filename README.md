@@ -12,7 +12,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 ranked) |
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | Framework ready |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Smoke test run on Kaggle |
-| 3. Features and the learned scorer | `src/features`, `src/scorer` | Pair loader and split ready |
+| 3. Features and the learned scorer | `src/features`, `src/scorer` | Architecture proposed (`docs/scorer-survey.md`); pilot run: 60.4% test pair accuracy vs 50.6% for CLIP-score |
 | 4. Editing models per operation, and their benchmark | `src/editors` | Planned |
 | 5. The editing assistant | `src/assistant` | Planned |
 
@@ -34,7 +34,8 @@ src/                        Python package (run as `python -m src.<module>`)
   editors/                  editing-model wrappers and benchmark
   assistant/                the end-to-end assistant
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
-configs/                    experiment settings (TOML), e.g. filters.toml
+configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
+docs/                       design notes and surveys, e.g. scorer-survey.md
 notebooks/                  Kaggle notebooks; kaggle_template.ipynb to start from
 tests/                      unit tests on a tiny synthetic dataset (never on data/)
 data/                       local only, git-ignored (photos of real people): see "Data"
@@ -355,12 +356,31 @@ subject):
   `--sample N` subset is fixed, so prompt versions and models are compared on the same requests.
 - The raw request is always kept; simplified instructions are never used as a training signal.
 
-## Scorer data (`src.scorer`)
+## Scorer (`src.scorer`)
 
 `src/scorer/data.py` loads the preference pairs of the final rankings (`load_pairs`), drops samples whose source
 forbids training, and assigns every sample to train (70%), dev (15%) or test (15%) by a hash of its ID, so the
-split never changes. v1 gives 15,287 pairs (train 10,598, dev 2,239, test 2,450). Features (`src/features`) and the
-models come next.
+split never changes. v1 gives 15,287 pairs (train 10,598, dev 2,239, test 2,450).
+
+The architecture (survey and proposal in `docs/scorer-survey.md`): frozen encoders (CLIP ViT-L/14, PickScore,
+SigLIP, DINOv2) embed the original, the edit and the request once; a small head (linear or MLP) on features of
+these embeddings gives one score per edit, trained on pairs of edits of the same request (Bradley-Terry on the soft
+labels `p_a`, or an HPSv3-style uncertainty loss).
+
+```bash
+.venv/bin/python -m src.scorer embed --backbone clip-l14   # on Kaggle: cache embeddings of the ranked samples
+.venv/bin/python -m src.scorer baselines                   # CLIP-score and other zero-shot baselines, human ceiling
+.venv/bin/python -m src.scorer train                       # heads of configs/scorer.toml (minutes on a CPU)
+.venv/bin/python -m src.scorer report                      # data/scorer/report.md: one table of everything
+```
+
+- **Runs** are listed in `configs/scorer.toml` (backbones, inputs, head, loss); each writes
+  `data/scorer/runs/<name>/` (`metrics.json`, `scores.jsonl` per edit, `head.pt`). Model selection uses dev; test
+  is reported once.
+- **Metrics:** pairwise accuracy with a 95% bootstrap interval over samples, accuracy weighted by |2 p_a - 1| and on
+  confident pairs, top-1 (best edit found), by source. The `edit-key-order` baseline (01 first) measures the
+  position and upvote bias of the labels; it is not a valid scorer.
+- Start from `notebooks/scorer_pilot.ipynb` on Kaggle (`STEP` picks the run).
 
 ## Data rules
 

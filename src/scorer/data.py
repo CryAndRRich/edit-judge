@@ -21,6 +21,13 @@ def split_of(sample_id: str) -> str:
     return SPLITS[-1][0]
 
 
+def load_rankings(version: str = "v1") -> dict[str, dict]:
+    """Sample ID -> final ranking record {"source", "rankings" (by annotator slot), "ranking", ...} of ranked
+    samples."""
+    return {r["id"]: r for r in iter_jsonl(RANKING_DIR / version / "final" / "rankings.jsonl")
+            if r["status"] == "ranked"}
+
+
 def load_pairs(version: str = "v1", split: str | None = None) -> list[dict]:
     """Pairs {"id", "a", "b", "p_a", "winner", "split"} of ranked samples; samples whose source forbids training
     are left out."""
