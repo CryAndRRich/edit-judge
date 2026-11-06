@@ -8,7 +8,7 @@ import json
 from tests.helpers import TMP, make_dataset  # sets the temporary data folders first
 
 from src.common.dataset import iter_samples
-from src.paths import FINAL_PAIRS
+from src.paths import FILTERS_DIR, FINAL_PAIRS
 from src.rank.export import export
 from src.rank.finalize import best_order, estimate_weights
 from src.scorer.data import load_pairs, split_of
@@ -75,8 +75,31 @@ class RankTests(unittest.TestCase):
         self.assertEqual(load_pairs(split=None)[0]["winner"], "01")
         rows[1] = {"id": "s001", "status": "ranked", "ranking": ["01", "02", "03"]}   # ranked by a later finalize
         write_final()
-        self.assertEqual(export()["restore_from_unranked"], 1)
+        self.assertEqual(export()["samples"], 3)
         self.assertTrue((TMP / "images" / "s001" / "03.jpg").exists())
+        self.assertFalse((TMP / "unranked" / "s001").exists())
+
+    def test_export_applies_the_filters(self):
+        self.test_export_keeps_only_ranked_samples()          # 3 ranked samples of 3 edits
+        decisions = FILTERS_DIR / "nsfw" / "decisions.jsonl"
+        decisions.parent.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(decisions.unlink, missing_ok=True)
+        flags = {"s000/03": True, "s001/01": True, "s001/02": True, "s002/original": True, "s002/01": False}
+        decisions.write_text("".join(json.dumps({"image_id": i, "score": 0.9, "flagged": f}) + "\n"
+                                     for i, f in flags.items()))
+        result = export()
+        self.assertEqual((result["samples"], result["pairs"]), (1, 1))      # s000 keeps 01 and 02
+        self.assertEqual((result["samples_dropped_original_flagged"], result["samples_dropped_fewer_than_2_edits"]),
+                         (1, 1))
+        self.assertEqual(sorted(p.name for p in (TMP / "images").iterdir()), ["s000"])
+        self.assertEqual(sorted(p.name for p in (TMP / "images" / "s000").iterdir()), ["01.jpg", "02.jpg", "original.jpg"])
+        self.assertTrue((TMP / "filtered" / "s000" / "03.jpg").exists())
+        self.assertTrue((TMP / "filtered" / "s002" / "original.jpg").exists())
+        self.assertEqual(json.loads(FINAL_PAIRS.read_text())["a"], "s000/01")   # p(01 over 02) = 0.55
+        decisions.unlink()                                       # no filter: everything comes back
+        self.assertEqual(export()["samples"], 3)
+        self.assertFalse((TMP / "filtered").exists())
+        self.assertTrue((TMP / "images" / "s002" / "original.jpg").exists())
 
 
 if __name__ == "__main__":

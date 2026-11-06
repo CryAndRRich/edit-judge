@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import unittest
 
@@ -8,10 +9,10 @@ from tests.helpers import make_dataset  # sets the temporary data folders first
 from src.common.dataset import iter_images
 from src.common.io import read_jsonl, write_jsonl
 from src.filters import TASKS, get_detector, registry
-from src.filters.base import Detector, run, score_path
+from src.filters.base import Detector, run, score_files, score_path
 from src.filters.benchmark import bench_dir, labels_path
-from src.filters.evaluate import average_precision, best_f1, evaluate, prf, roc_auc
-from src.filters.voting import combine
+from src.filters.evaluate import average_precision, best_f1, evaluate, prf, roc_auc, write_markdown
+from src.filters.voting import combine, load_scores
 from src.paths import FILTERS_DIR
 
 
@@ -85,25 +86,110 @@ class FilterTests(unittest.TestCase):
                 det = get_detector(task, name)
                 self.assertEqual((det.task, det.name), (task, name))
                 self.assertIsInstance(det.install, tuple)
-        for heavy in ("torch", "tensorflow", "timm", "ultralytics", "nudenet", "nemo_curator"):
-            self.assertNotIn(heavy, sys.modules)
+        check = ("import sys; from src.filters import TASKS, get_detector, registry; "
+                 "[get_detector(t, n) for t in TASKS for n in registry(t)]; "
+                 "print(sorted(m for m in ('torch', 'tensorflow', 'timm', 'ultralytics', 'nudenet', 'nemo_curator', "
+                 "'open_clip', 'easyocr') if m in sys.modules))")
+        out = subprocess.run([sys.executable, "-c", check], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.strip(), "[]")                 # in a fresh process: other tests import torch
 
     def test_benchmark_run_and_evaluation(self):
-        folder = bench_dir("watermark") / "images"
+        folder = bench_dir("watermark")
         rows = []
         for cls, red, label in (("watermark", 250, 1), ("watermark", 200, 1), ("clean", 120, 0), ("clean", 10, 0)):
-            (folder / cls).mkdir(parents=True, exist_ok=True)
-            file = f"{cls}/{red}.jpg"
+            (folder / "pub" / cls).mkdir(parents=True, exist_ok=True)
+            file = f"pub/{cls}/{red}.jpg"
             Image.new("RGB", (32, 32), (red, 0, 0)).save(folder / file)
-            rows.append({"image_id": f"{cls}/{red}", "label": label, "file": file})
+            rows.append({"image_id": f"pub/{cls}/{red}", "label": label, "file": file})
         write_jsonl(labels_path("watermark"), rows)
         det = RedDetector()
         det.task = "watermark"
-        self.assertEqual(run(det, device="cpu", on="benchmark")["scored"], 4)
+        result = run(det, device="cpu", on="benchmark", latency=3)
+        self.assertEqual(result["scored"], 4)
+        self.assertEqual(result["latency_ms"]["n"], 3)
         report = evaluate("watermark", {}, on="benchmark")
         red = report["models"]["red"]
         self.assertEqual((red["tp"], red["fp"], red["roc_auc"]), (2, 0, 1.0))
-        self.assertEqual(red["flagged_per_class"], {"clean": 0.0, "watermark": 1.0})
+        self.assertEqual(red["flagged_per_class"], {"pub/clean": 0.0, "pub/watermark": 1.0})
+        self.assertEqual(red["by_set"]["pub"]["f1"], 1.0)
+        for name in ("half", "noise"):                        # two weaker models: the vote of all three is worse
+            det = RedDetector()
+            det.task, det.name = "watermark", name
+            det.score = (lambda images: [0.6] * len(images)) if name == "half" else \
+                (lambda images: [0.9 if i % 2 else 0.1 for i, _ in enumerate(images)])
+            run(det, device="cpu", on="benchmark")
+        report = evaluate("watermark", {}, on="benchmark")
+        self.assertEqual(report["choice"]["single"]["model"], "red")
+        self.assertEqual(report["choice"]["f1_gain"], 0.0)
+        self.assertIn("red", report["subset_votes"][0]["models"])
+        self.assertEqual(len(report["subset_votes"]), 12)      # 4 subsets x 3 methods (no weights: no "weighted")
+        text = write_markdown(report)
+        self.assertIn("| red | 1.000 |", text)
+        self.assertTrue((FILTERS_DIR / "watermark" / "benchmark" / "evaluation.md").exists())
+
+    def test_shards_cover_every_image_once(self):
+        for i in range(3):
+            det = RedDetector()
+            det.name = "sharded"
+            run(det, device="cpu", shard=(i, 3))
+        ids = [r["image_id"] for f in score_files("nsfw", "sharded") for r in read_jsonl(f)]
+        self.assertEqual(sorted(ids), sorted(r.image_id for r in iter_images()))
+        self.assertEqual(len(load_scores("nsfw", ["sharded"])["sharded"]), 9)
+
+    def test_multirun_schedules_over_gpus(self):
+        """Fake processes: on the dataset every model is split into one shard per GPU, on the benchmark the models
+        run side by side; a second shard starts only after the first one has loaded the model."""
+        from unittest import mock
+        from src.filters import parallel
+        calls = []
+
+        class FakeProc:
+            def __init__(self, cmd, cwd=None, env=None, stdout=None, stderr=None, text=None):
+                calls.append((cmd, env["CUDA_VISIBLE_DEVICES"]))
+                stdout.write("loaded\n")
+                stdout.flush()
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+        with mock.patch.object(parallel.subprocess, "Popen", FakeProc), \
+                mock.patch.object(parallel, "ensure_env", lambda install, log=None: sys.executable):
+            out = parallel.multirun("watermark", "dataset", ["convnext", "laion"], gpus=2)
+            self.assertEqual(sorted(out["jobs"]), ["watermark-convnext-0", "watermark-convnext-1",
+                                                   "watermark-laion-0", "watermark-laion-1"])
+            shards = sorted(c[0][c[0].index("--shard") + 1] for c in calls)
+            self.assertEqual(shards, ["0/2", "0/2", "1/2", "1/2"])
+            calls.clear()
+            out = parallel.multirun("watermark", "benchmark", ["convnext", "laion", "ocr"], gpus=2, latency=20)
+            self.assertEqual(out["failed"], {})
+            self.assertEqual({c[1] for c in calls}, {"0", "1"})
+            self.assertTrue(all("--latency" in c[0] and "--shard" not in c[0] for c in calls))
+            first = {c[0][c[0].index("--model") + 1] for c in calls[:2]}
+            self.assertEqual(first, {"ocr", "laion"})                                   # slow models first
+
+    def test_benchmark_sampling_and_zip_set(self):
+        from src.filters import benchmark
+        idx = benchmark.sample_indices(["a"] * 5 + ["b"] * 2, per_class=3)
+        self.assertEqual(len(idx), 5)
+        self.assertEqual(idx, benchmark.sample_indices(["a"] * 5 + ["b"] * 2, per_class=3))   # fixed seed
+        self.assertEqual(idx[-2:], [5, 6])                                              # small class kept whole
+        import io
+        import zipfile
+        from unittest import mock
+        archive = bench_dir("nsfw") / "_fake.zip"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(archive, "w") as zf:
+            for cls in ("nsfw", "sfw"):
+                for k in range(3):
+                    buf = io.BytesIO()
+                    Image.new("RGB", (8, 8)).save(buf, "JPEG")
+                    zf.writestr(f"nsfw_detection_xl/{cls}/{k}.jpg", buf.getvalue())
+            zf.writestr("nsfw_detection_xl/.git/config", "x")
+        with mock.patch("huggingface_hub.hf_hub_download", lambda *a, **k: str(archive)), \
+                mock.patch.object(benchmark, "PER_CLASS", 2):
+            rows = benchmark.nsfw_detection_xl(archive.parent)
+        self.assertEqual(sorted((r.cls, r.label) for r in rows), [("nsfw", 1)] * 2 + [("sfw", 0)] * 2)
 
 
 if __name__ == "__main__":

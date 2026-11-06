@@ -6,7 +6,7 @@
 #   head:      linear | mlp
 #   loss:      bt (hard labels) | soft (p_a of the final ranking) | uncertainty (HPSv3-style Gaussian scores)
 
-version = "v1"
+version = "all"         # all (data/pairs.jsonl), or v1 / v2 (needs work/ranking: coordinator only)
 
 [train]                 # defaults for every run; a run may override any of them
 hidden = 256

@@ -12,7 +12,7 @@ Baselines (`baselines`), all without training: the edit key order (01 first: the
 the ranking app showed, so it measures label bias, not quality), image size, and per backbone the cosine
 similarities edit-request (CLIP-score), edit-original (preservation) and (edit - original)-request (direction).
 Human ceiling: how often one annotator agrees with the other two when those two agree.
-Writes data/scorer/baselines.json.
+Writes work/scorer/baselines.json.
 """
 
 from collections import defaultdict
@@ -87,7 +87,7 @@ def pair_metrics(pairs: list[dict], scores: dict[str, float], rankings: dict[str
             **top1(pairs, scores, rankings)}
 
 
-def eval_data(version: str = "v1") -> tuple[dict[str, list[dict]], dict[str, dict]]:
+def eval_data(version: str = "all") -> tuple[dict[str, list[dict]], dict[str, dict]]:
     """Pairs of every split, and the final rankings."""
     pairs = defaultdict(list)
     for p in load_pairs(version):
@@ -121,7 +121,7 @@ def _cos(x: np.ndarray, y: np.ndarray) -> float:
     return float(x @ y) / n if n > 0 else 0.0
 
 
-def baseline_scores(version: str = "v1") -> dict[str, dict[str, float]]:
+def baseline_scores(version: str = "all") -> dict[str, dict[str, float]]:
     """Baseline name -> image_id -> score, for every edit of the samples in scope."""
     samples = scope_samples(version)
     edits = [(s, ref) for s in samples for ref in images_of(s) if ref.key != "original"]
@@ -145,7 +145,7 @@ def baseline_scores(version: str = "v1") -> dict[str, dict[str, float]]:
     return dict(out)
 
 
-def baselines(version: str = "v1") -> dict:
+def baselines(version: str = "all") -> dict:
     pairs, rankings = eval_data(version)
     report = {"version": version,
               "human": {split: human_agreement(pairs.get(split, []), rankings) for split in EVAL_SPLITS},

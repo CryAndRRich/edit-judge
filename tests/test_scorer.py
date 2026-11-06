@@ -50,7 +50,7 @@ class ScorerTests(unittest.TestCase):
         images, texts, cls.quality = {}, {}, {}
         final = TMP / "ranking" / "v1" / "final"
         final.mkdir(parents=True, exist_ok=True)
-        with open(final / "pairs.jsonl", "w") as fp, open(final / "rankings.jsonl", "w") as fr:
+        with open(TMP / "pairs.jsonl", "w") as fp, open(final / "rankings.jsonl", "w") as fr:
             for n, s in enumerate(samples):
                 sid, keys = s["id"], ["01", "02", "03"]
                 texts[sid] = unit(rng.normal(size=DIM))
@@ -62,10 +62,10 @@ class ScorerTests(unittest.TestCase):
                 noisy = [order[1], order[0], order[2]]
                 fr.write(json.dumps({"id": sid, "source": "gier" if n % 4 == 0 else "realedit", "status": "ranked",
                                      "ranking": order, "rankings": {"R1": order, "R2": order, "R3": noisy}}) + "\n")
-                for a, b in itertools.combinations(keys, 2):
+                for a, b in itertools.combinations(order, 2):           # the final dataset: a is preferred
                     p_a = 1 / (1 + math.exp(-8 * (cls.quality[f"{sid}/{a}"] - cls.quality[f"{sid}/{b}"])))
-                    fp.write(json.dumps({"id": sid, "a": a, "b": b, "p_a": round(p_a, 4), "status": "ranked",
-                                         "winner": a if order.index(a) < order.index(b) else b}) + "\n")
+                    fp.write(json.dumps({"a": f"{sid}/{a}", "b": f"{sid}/{b}", "p": round(p_a, 4),
+                                         "request": "test"}) + "\n")
         (TMP / "index").mkdir(exist_ok=True)
         (TMP / "index" / "provenance.jsonl").write_text(json.dumps({"id": "s001", "trainable": False}) + "\n")
         ids = sorted(images)
@@ -78,12 +78,12 @@ class ScorerTests(unittest.TestCase):
         backbones.BACKBONES.pop("synthetic", None)
 
     def test_pairs_leave_out_untrainable_samples(self):
-        ids = {p["id"] for p in load_pairs("v1")}
+        ids = {p["id"] for p in load_pairs()}
         self.assertNotIn("s001", ids)
         self.assertEqual(len(ids), N_SAMPLES - 1)
 
     def test_metrics(self):
-        pairs, rankings = load_pairs("v1", "test"), load_rankings("v1")
+        pairs, rankings = load_pairs(split="test"), load_rankings()
         perfect = pair_metrics(pairs, self.quality, rankings)
         self.assertEqual(perfect["accuracy"], 1.0)
         self.assertEqual(perfect["top1"], 1.0)
@@ -95,7 +95,7 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(set(perfect["by_source"]), {"gier", "realedit"})
 
     def test_human_agreement(self):
-        h = human_agreement(load_pairs("v1"), load_rankings("v1"))
+        h = human_agreement(load_pairs(), load_rankings())
         # R3 swaps the two best edits: wrong on 1 of 3 pairs of every sample. Leave-one-out: R1 and R2 are
         # checked on the 2 pairs where the others agree (both right), R3 on all 3 (2 right)
         self.assertAlmostEqual(h["annotator_vs_final"], (3 + 3 + 2) / 9, places=3)
@@ -126,7 +126,7 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(result["images"], 5 * 4)
         self.assertEqual(len(load_embeddings("colour", "images")), 20)
         self.assertEqual(len(load_embeddings("colour", "texts")), 5)
-        b = baselines("v1")
+        b = baselines()
         self.assertIn("synthetic:edit-request", b["baselines"])
         self.assertEqual(b["baselines"]["synthetic:edit-request"]["test"]["accuracy"], 1.0)
         self.assertIn("edit-key-order", b["baselines"])

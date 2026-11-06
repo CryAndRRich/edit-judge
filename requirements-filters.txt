@@ -1,0 +1,13 @@
+# Extra packages of the image filter detectors (src/filters), beyond requirements-ml.txt. They run on Kaggle only.
+# Some of them pin conflicting versions (TensorFlow, NeMo Curator), so they are not installed together:
+# notebooks/filters.ipynb installs each detector's packages (`install` in its class, shown by
+# `python -m src.filters list`) right before that detector runs in its own process. This file is the record.
+-r requirements-ml.txt
+timm>=0.9.16                              # owen, efficientnet, laion
+onnxruntime-gpu>=1.21,<1.24               # nudenet (install nudenet itself with --no-deps)
+nudenet==3.4.2                            # nudenet
+tensorflow>=2.20,<2.22                    # opennsfw2, mobilenet
+opennsfw2[keras3]==0.19.0                 # opennsfw2
+ultralytics==8.3.228                      # yolo (AGPL-3.0, academic use only)
+easyocr                                   # ocr
+nemo-curator[image_cuda12]==1.3.0         # nemo (needs CUDA; pins its own torch and transformers)

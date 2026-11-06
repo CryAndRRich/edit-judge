@@ -8,7 +8,7 @@ from PIL import Image
 
 
 class Backbone:
-    name: str = ""          # short unique name; also the folder in data/scorer/embeddings/
+    name: str = ""          # short unique name; also the folder in work/scorer/embeddings/
     model_id: str = ""      # Hugging Face ID
     has_text: bool = True   # False for image-only encoders (no request embedding)
     batch_size: int = 64

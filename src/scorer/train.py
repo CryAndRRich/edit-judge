@@ -7,7 +7,7 @@ Features of an edit e of a sample with original o and request t, per backbone (v
 Features are standardised with the mean and deviation of the training edits.
 
 Training: pairs of the train split, model selection (early stopping) on dev pairwise accuracy, test reported once.
-Writes data/scorer/runs/<name>/: metrics.json (train, dev, test), scores.jsonl (every edit), head.pt (weights,
+Writes work/scorer/runs/<name>/: metrics.json (train, dev, test), scores.jsonl (every edit), head.pt (weights,
 feature standardisation and config, enough to score new edits from the same backbones).
 """
 
@@ -72,7 +72,7 @@ def edit_features(edits: list[tuple[str, str]], backbones: list[str], inputs: li
     return np.concatenate(blocks, axis=1).astype(np.float32), [f"{s}/{k}" for s, k in keep]
 
 
-def train_run(run: dict, defaults: dict | None = None, version: str = "v1", device: str | None = None) -> dict:
+def train_run(run: dict, defaults: dict | None = None, version: str = "all", device: str | None = None) -> dict:
     """Train one head (`run`: name, backbones and any DEFAULTS key), save it and return its metrics."""
     import torch
 
@@ -156,7 +156,7 @@ def train_run(run: dict, defaults: dict | None = None, version: str = "v1", devi
 
 def report() -> dict:
     """One table of every baseline and run: dev and test accuracy (test CI, confident pairs, top-1, by source),
-    written to data/scorer/report.md and report.json."""
+    written to work/scorer/report.md and report.json."""
     rows, human = [], {}
     baselines_path = SCORER_DIR / "baselines.json"
     if baselines_path.exists():

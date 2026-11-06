@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["list", "embed", "baselines", "train", "report"])
     parser.add_argument("--backbone")
-    parser.add_argument("--version", help="ranking version (default: the config's, else v1)")
+    parser.add_argument("--version", help="ranking version: all, v1 or v2 (default: the config's, else all; v1 and v2 need work/)")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--device")
     parser.add_argument("--allow-cpu", action="store_true", help="embed: allow a large run without a GPU (approved runs only)")
@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> None:
 
     from .train import load_config
     cfg = load_config(args.config)
-    version = args.version or cfg.get("version", "v1")
+    version = args.version or cfg.get("version", "all")
     if args.command == "list":
         result = {"backbones": sorted(BACKBONES), "runs": [r["name"] for r in cfg.get("runs", [])]}
     elif args.command == "embed":

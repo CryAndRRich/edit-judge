@@ -1,7 +1,7 @@
 """Embed the images and requests of the ranked samples with a frozen backbone, once, so that every scorer head and
 baseline is trained and evaluated from the cache without a GPU.
 
-    data/scorer/embeddings/<backbone>/images.npy + images.json   one row per image_id (originals and edits)
+    work/scorer/embeddings/<backbone>/images.npy + images.json   one row per image_id (originals and edits)
                                       texts.npy  + texts.json    one row per sample ID (the request as written)
                                       meta.json                  model, device, time per image
 
@@ -50,7 +50,7 @@ def load_embeddings(backbone_name: str, kind: str) -> dict[str, np.ndarray]:
     return dict(zip(ids, vectors))
 
 
-def scope_samples(version: str = "v1", limit: int | None = None) -> list[dict]:
+def scope_samples(version: str = "all", limit: int | None = None) -> list[dict]:
     """Samples that have preference pairs, in dataset order."""
     ids = {p["id"] for p in load_pairs(version)}
     samples = [s for s in iter_samples() if s["id"] in ids]
@@ -76,7 +76,7 @@ class _Images:
             return self.backbone.preprocess(im.convert("RGB"))
 
 
-def embed(backbone, version: str = "v1", limit: int | None = None, device: str | None = None,
+def embed(backbone, version: str = "all", limit: int | None = None, device: str | None = None,
           allow_cpu: bool = False, workers: int | None = None) -> dict:
     """Embed the images (and requests) of the samples in scope. `limit` caps the number of samples."""
     from torch.utils.data import DataLoader
