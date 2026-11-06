@@ -30,8 +30,9 @@ class NudeNet(Detector):
 
     def score(self, images):
         out = []
-        for im in images:
-            bgr = self.np.ascontiguousarray(self.np.asarray(im)[:, :, ::-1])   # NudeNet reads OpenCV (BGR) arrays
+        for image in images:
+            bgr = self.np.ascontiguousarray(self.np.asarray(image)[:, :, ::-1])   # NudeNet reads OpenCV (BGR) arrays
             found = self.detector.detect(bgr)
-            out.append(max((float(d["score"]) for d in found if d["class"] in EXPOSED), default=0.0))
+            exposed = [float(detection["score"]) for detection in found if detection["class"] in EXPOSED]
+            out.append(max(exposed, default=0.0))
         return out

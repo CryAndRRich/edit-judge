@@ -24,14 +24,14 @@ class ClipZeroShot(Detector):
         with torch.inference_mode():
             sides = []
             for prompts in (self.positive, self.negative):
-                t = self.model.encode_text(tokenizer(list(prompts)).to(device)).float()
-                t = (t / t.norm(dim=-1, keepdim=True)).mean(0)
-                sides.append(t / t.norm())
+                side = self.model.encode_text(tokenizer(list(prompts)).to(device)).float()
+                side = (side / side.norm(dim=-1, keepdim=True)).mean(0)
+                sides.append(side / side.norm())
             self.text = torch.stack(sides)                    # [positive, negative]
 
     def score(self, images):
-        x = self.torch.stack([self.preprocess(im) for im in images]).to(self.device)
+        batch = self.torch.stack([self.preprocess(image) for image in images]).to(self.device)
         with self.torch.inference_mode():
-            e = self.model.encode_image(x).float()
-            e = e / e.norm(dim=-1, keepdim=True)
-            return (100.0 * e @ self.text.T).softmax(-1)[:, 0].tolist()
+            embeddings = self.model.encode_image(batch).float()
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+            return (100.0 * embeddings @ self.text.T).softmax(-1)[:, 0].tolist()

@@ -39,13 +39,16 @@ def ensure_env(install: tuple[str, ...], log=None) -> str:
         return str(python)
     shutil.rmtree(folder, ignore_errors=True)
     uv = shutil.which("uv")
-    run = lambda cmd: subprocess.run(cmd, check=True, stdout=log, stderr=subprocess.STDOUT, text=True)
+
+    def run_logged(command: list[str]) -> None:
+        subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, text=True)
+
     if uv:
-        run([uv, "venv", "--system-site-packages", "--python", sys.executable, str(folder)])
+        run_logged([uv, "venv", "--system-site-packages", "--python", sys.executable, str(folder)])
     else:
-        run([sys.executable, "-m", "venv", "--system-site-packages", str(folder)])
-    for args in install:
-        cmd = [uv, "pip", "install", "--python", str(python)] if uv else [str(python), "-m", "pip", "install", "-q"]
-        run(cmd + args.replace('"', "").split())
+        run_logged([sys.executable, "-m", "venv", "--system-site-packages", str(folder)])
+    for pip_args in install:
+        pip = [uv, "pip", "install", "--python", str(python)] if uv else [str(python), "-m", "pip", "install", "-q"]
+        run_logged(pip + pip_args.replace('"', "").split())
     (folder / ".ready").write_text("\n".join(install) + "\n")
     return str(python)

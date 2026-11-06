@@ -39,7 +39,7 @@ def allowed_classes(kind: str) -> list:
 def load_allowlisted(path, kind: str):
     import torch
     allowed = allowed_classes(kind)
-    names = {x[1] if isinstance(x, tuple) else f"{x.__module__}.{x.__qualname__}" for x in allowed}
+    names = {item[1] if isinstance(item, tuple) else f"{item.__module__}.{item.__qualname__}" for item in allowed}
     unknown = set(torch.serialization.get_unsafe_globals_in_checkpoint(path)) - names
     if unknown:
         raise ValueError(f"checkpoint refers to classes that were not reviewed: {sorted(unknown)}")

@@ -31,8 +31,8 @@ from .voting import METHODS, combine, load_scores
 
 
 def load_config(path: str, task: str) -> dict:
-    with open(REPO_ROOT / path if not path.startswith("/") else path, "rb") as fh:
-        return tomllib.load(fh).get(task, {})
+    with open(REPO_ROOT / path if not path.startswith("/") else path, "rb") as handle:
+        return tomllib.load(handle).get(task, {})
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -47,7 +47,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--scope", default="all", choices=["all", "originals", "edits"])
     parser.add_argument("--limit", type=int)
     parser.add_argument("--device")
-    parser.add_argument("--allow-cpu", action="store_true", help="run: allow a large run without a GPU (approved runs only)")
+    parser.add_argument("--allow-cpu", action="store_true",
+                        help="run: allow a large run without a GPU (approved runs only)")
     parser.add_argument("--config", default="configs/filters.toml")
     parser.add_argument("--allow-local", action="store_true", help="prepare: allow the download outside Kaggle")
     parser.add_argument("--sets", help="prepare, run: comma-separated benchmark sets (default: all of the task)")
@@ -57,8 +58,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "list":
-        print(json.dumps({t: {n: list(get_detector(t, n).install) for n in sorted(registry(t))} for t in TASKS},
-                         indent=1))
+        print(json.dumps({task: {name: list(get_detector(task, name).install) for name in sorted(registry(task))}
+                          for task in TASKS}, indent=1))
         return
     if not args.task:
         parser.error("--task is required")
@@ -69,7 +70,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "run":
         if not args.model:
             parser.error("run needs --model")
-        shard = tuple(int(x) for x in args.shard.split("/")) if args.shard else None
+        shard = tuple(int(part) for part in args.shard.split("/")) if args.shard else None
         if shard and not (len(shard) == 2 and 0 <= shard[0] < shard[1]):
             parser.error("--shard must be I/N with 0 <= I < N")
         result = run(get_detector(args.task, args.model), args.scope, args.limit, args.device, args.allow_cpu, args.on,
@@ -86,15 +87,19 @@ def main(argv: list[str] | None = None) -> None:
         scores = load_scores(args.task, models)
         combined = scores[models[0]] if len(models) == 1 else combine(scores, method, cfg.get("thresholds"),
                                                                        cfg.get("weights"))
-        t = cfg.get("threshold", 0.5) if len(models) > 1 else cfg.get("thresholds", {}).get(models[0], 0.5)
-        flagged = sorted(i for i, s in combined.items() if s >= t)
+        if len(models) > 1:
+            threshold = cfg.get("threshold", 0.5)
+        else:
+            threshold = cfg.get("thresholds", {}).get(models[0], 0.5)
+        flagged = sorted(image_id for image_id, score in combined.items() if score >= threshold)
         write_jsonl(FILTERS_DIR / args.task / "decisions.jsonl",
-                    ({"image_id": i, "score": round(s, 5), "flagged": s >= t} for i, s in sorted(combined.items())))
-        originals = [i for i in flagged if i.endswith("/original")]
-        result = {"models": models, "method": method if len(models) > 1 else "single model", "threshold": t,
+                    ({"image_id": image_id, "score": round(score, 5), "flagged": score >= threshold}
+                     for image_id, score in sorted(combined.items())))
+        originals = [image_id for image_id in flagged if image_id.endswith("/original")]
+        result = {"models": models, "method": method if len(models) > 1 else "single model", "threshold": threshold,
                   "images": len(combined), "flagged": len(flagged), "flagged_originals": len(originals),
                   "flagged_edits": len(flagged) - len(originals),
-                  "samples_touched": len({i.split("/")[0] for i in flagged})}
+                  "samples_touched": len({image_id.split("/")[0] for image_id in flagged})}
     else:
         result = evaluate(args.task, load_config(args.config, args.task), args.on, models)
         print(write_markdown(result))

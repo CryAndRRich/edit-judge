@@ -20,7 +20,7 @@ class OcrWatermark(Detector):
 
     def score(self, images):
         out = []
-        for im in images:
-            found = self.reader.readtext(self.np.asarray(im), detail=1)
+        for image in images:
+            found = self.reader.readtext(self.np.asarray(image), detail=1)
             out.append(max((float(conf) for _, text, conf in found if WORD.search(text)), default=0.0))
         return out

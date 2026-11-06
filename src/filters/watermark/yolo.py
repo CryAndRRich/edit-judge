@@ -34,4 +34,5 @@ class YoloWatermark(Detector):
     def score(self, images):
         results = self.model.predict(source=images, device=self.device, imgsz=640, conf=0.001, classes=[0, 1],
                                      verbose=False, half=False, batch=len(images))
-        return [float(r.boxes.conf.max()) if r.boxes is not None and len(r.boxes) else 0.0 for r in results]
+        return [float(result.boxes.conf.max()) if result.boxes is not None and len(result.boxes) else 0.0
+                for result in results]

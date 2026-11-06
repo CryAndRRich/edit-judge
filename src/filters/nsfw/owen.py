@@ -14,10 +14,10 @@ class OwenElliott(Detector):
         self.torch, self.device = torch, device
         self.model = timm.create_model(self.model_id, pretrained=True).to(device).eval()
         self.transform = create_transform(**resolve_model_data_config(self.model), is_training=False)
-        self.positive = [str(x).upper() for x in self.model.pretrained_cfg["label_names"]].index("NSFW")
+        self.positive = [str(batch).upper() for batch in self.model.pretrained_cfg["label_names"]].index("NSFW")
 
     def score(self, images):
-        x = self.torch.stack([self.transform(im) for im in images]).to(self.device)
+        batch = self.torch.stack([self.transform(image) for image in images]).to(self.device)
         with self.torch.inference_mode():
-            probs = self.model(x).float().softmax(-1)
+            probs = self.model(batch).float().softmax(-1)
         return probs[:, self.positive].tolist()

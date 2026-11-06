@@ -11,7 +11,7 @@ from src.common.io import read_jsonl, write_jsonl
 from src.filters import TASKS, get_detector, registry
 from src.filters.base import Detector, run, score_files, score_path
 from src.filters.benchmark import bench_dir, labels_path
-from src.filters.evaluate import average_precision, best_f1, evaluate, prf, roc_auc, write_markdown
+from src.filters.evaluate import average_precision, best_f1, evaluate, precision_recall_f1, roc_auc, write_markdown
 from src.filters.voting import combine, load_scores
 from src.paths import FILTERS_DIR
 
@@ -70,7 +70,7 @@ class FilterTests(unittest.TestCase):
     def test_metrics(self):
         scores = {"a": 0.9, "b": 0.8, "c": 0.3, "d": 0.1}
         labels = {"a": 1, "b": 0, "c": 1, "d": 0}
-        self.assertEqual(prf(scores, labels, 0.5), {"n": 4, "precision": 0.5, "recall": 0.5, "f1": 0.5})
+        self.assertEqual(precision_recall_f1(scores, labels, 0.5), {"n": 4, "precision": 0.5, "recall": 0.5, "f1": 0.5})
         self.assertEqual(best_f1(scores, labels)["threshold"], 0.3)
 
     def test_ranking_metrics(self):

@@ -31,6 +31,6 @@ class LaionWatermark(Detector):
                                              transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
     def score(self, images):
-        x = self.torch.stack([self.transform(im) for im in images]).to(self.device)
+        batch = self.torch.stack([self.transform(image) for image in images]).to(self.device)
         with self.torch.inference_mode():
-            return self.model(x).float().softmax(1)[:, 0].tolist()
+            return self.model(batch).float().softmax(1)[:, 0].tolist()

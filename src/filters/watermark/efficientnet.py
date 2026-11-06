@@ -25,6 +25,6 @@ class EfficientNetWatermark(Detector):
         self.transform = create_transform(**resolve_data_config(cfg, model=model), is_training=False)
 
     def score(self, images):
-        x = self.torch.stack([self.transform(im) for im in images]).to(self.device)
+        batch = self.torch.stack([self.transform(image) for image in images]).to(self.device)
         with self.torch.inference_mode():
-            return self.model(x).float().reshape(-1).sigmoid().tolist()
+            return self.model(batch).float().reshape(-1).sigmoid().tolist()

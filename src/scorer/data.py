@@ -20,11 +20,11 @@ SPLITS = (("train", 0.70), ("dev", 0.15), ("test", 0.15))
 def split_of(sample_id: str) -> str:
     """Stable split of a sample, from a hash of its ID (so it never changes between runs or machines).
     Near-duplicate originals are already merged by the build, so a split by sample keeps them apart."""
-    u = int(hashlib.sha1(sample_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    position = int(hashlib.sha1(sample_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
     edge = 0.0
     for name, share in SPLITS:
         edge += share
-        if u < edge:
+        if position < edge:
             return name
     return SPLITS[-1][0]
 
@@ -43,33 +43,37 @@ def load_pairs(version: str | None = "all", split: str | None = None) -> list[di
     """Pairs {"id", "a", "b" (edit keys), "p_a", "winner", "split"}: a is the preferred edit and p_a = P(a better
     than b) >= 0.5. Samples whose source forbids training are left out."""
     banned, keep = not_trainable(), version_ids(version)
-    out = []
-    for p in iter_jsonl(FINAL_PAIRS):
-        sid, a = p["a"].split("/")
-        if sid in banned or (keep is not None and sid not in keep):
+    pairs = []
+    for pair in iter_jsonl(FINAL_PAIRS):
+        sample_id, better = pair["a"].split("/")
+        if sample_id in banned or (keep is not None and sample_id not in keep):
             continue
-        s = split_of(sid)
-        if split is None or s == split:
-            out.append({"id": sid, "a": a, "b": p["b"].split("/")[1], "p_a": p["p"], "winner": a, "split": s})
-    return out
+        sample_split = split_of(sample_id)
+        if split is None or sample_split == split:
+            pairs.append({"id": sample_id, "a": better, "b": pair["b"].split("/")[1], "p_a": pair["p"],
+                          "winner": better, "split": sample_split})
+    return pairs
 
 
 def load_rankings(version: str | None = "all") -> dict[str, dict]:
     """Sample ID -> {"ranking": edit keys from best to worst, from the pairs (an edit's rank is its number of wins),
     "source" and "rankings" (by annotator slot) when work/ has them}."""
     wins, keys = defaultdict(lambda: defaultdict(int)), defaultdict(set)
-    for p in load_pairs(version):
-        wins[p["id"]][p["a"]] += 1
-        keys[p["id"]].update((p["a"], p["b"]))
-    out = {sid: {"ranking": sorted(k, key=lambda e: (-wins[sid][e], e))} for sid, k in keys.items()}
+    for pair in load_pairs(version):
+        wins[pair["id"]][pair["a"]] += 1
+        keys[pair["id"]].update((pair["a"], pair["b"]))
+    rankings = {sample_id: {"ranking": sorted(edits, key=lambda edit: (-wins[sample_id][edit], edit))}
+                for sample_id, edits in keys.items()}
     if PROVENANCE.exists():
-        for r in iter_jsonl(PROVENANCE):
-            if r["id"] in out:
-                out[r["id"]]["source"] = r["source"]
+        for record in iter_jsonl(PROVENANCE):
+            if record["id"] in rankings:
+                rankings[record["id"]]["source"] = record["source"]
     for final in RANKING_DIR.glob("v*/final/rankings.jsonl"):
-        for r in iter_jsonl(final):
-            if r["id"] in out:
-                out[r["id"]]["rankings"] = {v: rk for v, rk in r["rankings"].items() if v not in r.get("replaced", [])}
-                if r.get("source"):
-                    out[r["id"]].setdefault("source", r["source"])
-    return out
+        for record in iter_jsonl(final):
+            if record["id"] in rankings:
+                replaced = record.get("replaced", [])
+                rankings[record["id"]]["rankings"] = {slot: order for slot, order in record["rankings"].items()
+                                                      if slot not in replaced}
+                if record.get("source"):
+                    rankings[record["id"]].setdefault("source", record["source"])
+    return rankings

@@ -52,8 +52,8 @@ class NemoCurator(Detector):
         self.nsfw.setup()
 
     def score(self, images):
-        objects = [self.ImageObject(image_path=str(i), image_id=str(i), metadata={},
-                                    image_data=self.np.asarray(im)) for i, im in enumerate(images)]
+        objects = [self.ImageObject(image_path=str(index), image_id=str(index), metadata={},
+                                    image_data=self.np.asarray(image)) for index, image in enumerate(images)]
         task = self.nsfw.process(self.embed.process(self.ImageBatch(dataset_name="editjudge", data=objects)))
-        by_id = {o.image_id: float(o.nsfw_score) for o in task.data}
-        return [by_id[str(i)] for i in range(len(images))]
+        by_id = {item.image_id: float(item.nsfw_score) for item in task.data}
+        return [by_id[str(index)] for index in range(len(images))]

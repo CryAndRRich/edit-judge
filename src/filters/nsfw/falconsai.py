@@ -13,7 +13,7 @@ class Falconsai(Detector):
         self.processor = AutoImageProcessor.from_pretrained(self.model_id)
         self.model = AutoModelForImageClassification.from_pretrained(self.model_id, use_safetensors=True)
         self.model.to(device).eval()
-        labels = {str(v).lower(): int(k) for k, v in self.model.config.id2label.items()}
+        labels = {str(name).lower(): int(index) for index, name in self.model.config.id2label.items()}
         self.positive = labels["nsfw"]
 
     def score(self, images):

@@ -23,17 +23,18 @@ class MobileNetNSFW(Detector):
         folder = MODELS_DIR / "mobilenet_v2_140_224"
         if not list(folder.rglob("saved_model.pb")):
             folder.mkdir(parents=True, exist_ok=True)
-            archive = folder / "model.zip"
-            with requests.get(URL, stream=True, timeout=(30, 120)) as r:
-                r.raise_for_status()
-                with open(archive, "wb") as fh:
-                    for chunk in r.iter_content(1 << 20):
-                        fh.write(chunk)
-            with zipfile.ZipFile(archive) as zf:
-                if any(not (folder / m).resolve().is_relative_to(folder.resolve()) for m in zf.namelist()):
+            zip_path = folder / "model.zip"
+            with requests.get(URL, stream=True, timeout=(30, 120)) as response:
+                response.raise_for_status()
+                with open(zip_path, "wb") as handle:
+                    for chunk in response.iter_content(1 << 20):
+                        handle.write(chunk)
+            with zipfile.ZipFile(zip_path) as archive:
+                members = archive.namelist()
+                if any(not (folder / member).resolve().is_relative_to(folder.resolve()) for member in members):
                     raise ValueError("unsafe path in the model zip")
-                zf.extractall(folder)
-            archive.unlink()
+                archive.extractall(folder)
+            zip_path.unlink()
         model_dir = next(folder.rglob("saved_model.pb")).parent
         if (model_dir / "class_labels.txt").read_text().split() != LABELS:
             raise ValueError("unexpected class order in the checkpoint")
@@ -44,8 +45,8 @@ class MobileNetNSFW(Detector):
         self.input_name = next(iter(self.fn.structured_input_signature[1]))
 
     def score(self, images):
-        x = self.np.stack([self.np.asarray(im.resize((224, 224), resample=0), dtype=self.np.float32) / 255.0
-                           for im in images])
+        batch = self.np.stack([self.np.asarray(image.resize((224, 224), resample=0), dtype=self.np.float32) / 255.0
+                               for image in images])
         with self.tf.device(self.tf_device):
-            probs = next(iter(self.fn(**{self.input_name: self.tf.convert_to_tensor(x)}).values())).numpy()
+            probs = next(iter(self.fn(**{self.input_name: self.tf.convert_to_tensor(batch)}).values())).numpy()
         return self.np.clip(probs[:, POSITIVE].sum(axis=1), 0, 1).tolist()

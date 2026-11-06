@@ -17,7 +17,8 @@ METHODS = ("mean", "weighted", "max", "majority")
 
 def load_scores(task: str, models: list[str], on: str = "dataset") -> dict[str, dict[str, float]]:
     """model -> image_id -> score."""
-    return {m: {r["image_id"]: r["score"] for f in score_files(task, m, on) for r in iter_jsonl(f)} for m in models}
+    return {model: {row["image_id"]: row["score"] for path in score_files(task, model, on) for row in iter_jsonl(path)}
+            for model in models}
 
 
 def combine(scores: dict[str, dict[str, float]], method: str, thresholds: dict | None = None,
@@ -28,17 +29,19 @@ def combine(scores: dict[str, dict[str, float]], method: str, thresholds: dict |
         return {}
     thresholds, weights = thresholds or {}, weights or {}
     models = list(scores)
-    common = set.intersection(*(set(s) for s in scores.values()))
-    out = {}
+    common = set.intersection(*(set(model_scores) for model_scores in scores.values()))
+    combined = {}
     for image_id in common:
-        values = [scores[m][image_id] for m in models]
+        values = [scores[model][image_id] for model in models]
         if method == "mean":
-            out[image_id] = sum(values) / len(values)
+            combined[image_id] = sum(values) / len(values)
         elif method == "weighted":
-            w = [weights.get(m, 1.0) for m in models]
-            out[image_id] = sum(v * x for v, x in zip(values, w)) / sum(w)
+            model_weights = [weights.get(model, 1.0) for model in models]
+            weighted_sum = sum(value * weight for value, weight in zip(values, model_weights))
+            combined[image_id] = weighted_sum / sum(model_weights)
         elif method == "max":
-            out[image_id] = max(values)
+            combined[image_id] = max(values)
         else:
-            out[image_id] = sum(v >= thresholds.get(m, 0.5) for m, v in zip(models, values)) / len(models)
-    return out
+            votes = sum(value >= thresholds.get(model, 0.5) for model, value in zip(models, values))
+            combined[image_id] = votes / len(models)
+    return combined

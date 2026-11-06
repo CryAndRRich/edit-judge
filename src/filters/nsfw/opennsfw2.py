@@ -25,7 +25,7 @@ class OpenNSFW2(Detector):
             self.model = n2.make_open_nsfw_model()          # downloads the weights to ~/.opennsfw2 once
 
     def score(self, images):
-        x = self.np.stack([self.n2.preprocess_image(im, self.n2.Preprocessing.YAHOO) for im in images])
+        batch = self.np.stack([self.n2.preprocess_image(image, self.n2.Preprocessing.YAHOO) for image in images])
         with self.tf.device(self.tf_device):
-            probs = self.model(x, training=False).numpy()
+            probs = self.model(batch, training=False).numpy()
         return probs[:, 1].tolist()
