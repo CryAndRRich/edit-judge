@@ -27,7 +27,8 @@ class NemoCurator(Detector):
     embedding). The filter threshold is set above 1 so no image is dropped; the score is kept. Needs CUDA and a
     kernel restart after the install."""
     task, name, model_id, batch_size = "nsfw", "nemo", "nemo-curator==1.3.0 (CLIP ViT-L/14 + NSFW scorer)", 64
-    install = ('"nemo-curator[image_cuda12]==1.3.0"',)
+    install = ('"nemo-curator[image_cuda12]==1.3.0" pillow',)
+    isolated = True                 # it installs its own torch: the machine's torchaudio would not load next to it
 
     def load(self, device):
         import numpy as np

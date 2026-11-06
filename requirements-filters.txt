@@ -3,11 +3,13 @@
 # notebooks/filters.ipynb installs each detector's packages (`install` in its class, shown by
 # `python -m src.filters list`) right before that detector runs in its own process. This file is the record.
 -r requirements-ml.txt
-timm>=0.9.16                              # owen, efficientnet, laion
-onnxruntime-gpu>=1.21,<1.24               # nudenet (install nudenet itself with --no-deps)
+timm>=0.9.16                              # owen, laion
+timm==0.9.16                              # efficientnet (its pickled model needs this timm), own environment
+open_clip_torch                           # clip (zero-shot, both tasks)
+onnxruntime-gpu[cuda,cudnn]>=1.21,<1.24   # nudenet (with its CUDA 12 / cuDNN libraries; nudenet with --no-deps)
 nudenet==3.4.2                            # nudenet
 tensorflow>=2.20,<2.22                    # opennsfw2, mobilenet
 opennsfw2[keras3]==0.19.0                 # opennsfw2
 ultralytics==8.3.228                      # yolo (AGPL-3.0, academic use only)
 easyocr                                   # ocr
-nemo-curator[image_cuda12]==1.3.0         # nemo (needs CUDA; pins its own torch and transformers)
+nemo-curator[image_cuda12]==1.3.0         # nemo (needs CUDA; brings its own torch, so an isolated environment)

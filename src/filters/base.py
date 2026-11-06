@@ -34,6 +34,9 @@ class Detector:
     batch_size: int = 16
     install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each, beyond requirements-ml.txt;
                                     # detectors with the same `install` share one environment (envs.py)
+    isolated: bool = False          # True: an environment that does not see the machine's packages at all, for
+                                    # libraries that bring their own torch (the machine's torchaudio, torchvision
+                                    # would not match it)
 
     def load(self, device: str) -> None:
         """Load the model onto `device` ("cuda", "mps" or "cpu"). Import heavy libraries here, not at the top of

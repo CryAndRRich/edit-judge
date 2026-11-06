@@ -11,6 +11,7 @@ from .base import Detector
 class ClipZeroShot(Detector):
     model_id = "open_clip ViT-L-14 openai"
     batch_size = 32
+    install = ("open_clip_torch",)
     positive: tuple[str, ...] = ()
     negative: tuple[str, ...] = ()
 

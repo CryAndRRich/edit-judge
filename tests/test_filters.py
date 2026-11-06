@@ -86,6 +86,10 @@ class FilterTests(unittest.TestCase):
                 det = get_detector(task, name)
                 self.assertEqual((det.task, det.name), (task, name))
                 self.assertIsInstance(det.install, tuple)
+        from src.filters.envs import env_name
+        nemo = get_detector("nsfw", "nemo")
+        self.assertTrue(nemo.isolated)                       # its own torch: not on top of the machine's packages
+        self.assertNotEqual(env_name(nemo.install, True), env_name(nemo.install, False))
         check = ("import sys; from src.filters import TASKS, get_detector, registry; "
                  "[get_detector(t, n) for t in TASKS for n in registry(t)]; "
                  "print(sorted(m for m in ('torch', 'tensorflow', 'timm', 'ultralytics', 'nudenet', 'nemo_curator', "
@@ -154,7 +158,7 @@ class FilterTests(unittest.TestCase):
                 return 0
 
         with mock.patch.object(parallel.subprocess, "Popen", FakeProc), \
-                mock.patch.object(parallel, "ensure_env", lambda install, log=None: sys.executable):
+                mock.patch.object(parallel, "ensure_env", lambda install, log=None, isolated=False: sys.executable):
             out = parallel.multirun("watermark", "dataset", ["convnext", "laion"], gpus=2)
             self.assertEqual(sorted(out["jobs"]), ["watermark-convnext-0", "watermark-convnext-1",
                                                    "watermark-laion-0", "watermark-laion-1"])

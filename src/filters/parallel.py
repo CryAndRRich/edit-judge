@@ -34,8 +34,10 @@ def log_progress(text: str) -> None:
 
 
 def last_line(path) -> str:
+    """The last progress or error line of a log (the JSON summary a run prints at the end is skipped)."""
     try:
-        lines = [line for line in path.read_text(errors="ignore").splitlines() if line.strip()]
+        lines = [line for line in path.read_text(errors="ignore").splitlines()
+                 if line.strip() and not line.startswith((" ", "{", "}"))]
     except FileNotFoundError:
         return ""
     return lines[-1][-160:] if lines else ""
@@ -50,21 +52,23 @@ def gpu_count() -> int:
 
 def prepare_envs(task: str, models: list[str], logs) -> dict[str, str | Exception]:
     """Model -> Python of its environment, or the error that prevented it; environments built 3 at a time."""
-    installs = {model: get_detector(task, model).install for model in models}
+    detectors = {model: get_detector(task, model) for model in models}
+    installs = {model: (detector.install, detector.isolated) for model, detector in detectors.items()}
     unique = sorted(set(installs.values()))
-    log_progress(f"building {sum(bool(install) for install in unique)} environments for {', '.join(models)}")
+    log_progress(f"building {sum(bool(install) for install, _ in unique)} environments for {', '.join(models)}")
 
-    def build(install):
-        group = "-".join(model for model in models if installs[model] == install)
+    def build(spec):
+        install, isolated = spec
+        group = "-".join(model for model in models if installs[model] == spec)
         started = time.monotonic()
         with open(logs / f"env-{group}.log", "a") as log:
-            python = ensure_env(install, log)
+            python = ensure_env(install, log, isolated)
         if install:
             log_progress(f"environment for {group} ready in {time.monotonic() - started:.0f} s")
         return python
 
     with ThreadPoolExecutor(3) as pool:
-        futures = {install: pool.submit(build, install) for install in unique}
+        futures = {spec: pool.submit(build, spec) for spec in unique}
     pythons = {}
     for model in models:
         try:

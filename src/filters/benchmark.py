@@ -244,6 +244,10 @@ def prepare(task: str, allow_local: bool = False, sets: list[str] | None = None)
             if row.data is not None:
                 from PIL import Image
                 with Image.open(io.BytesIO(row.data)) as image:
+                    if image.mode in ("P", "LA", "RGBA"):   # transparency: on white, like the dataset images
+                        rgba = image.convert("RGBA")
+                        image = Image.new("RGB", rgba.size, "white")
+                        image.paste(rgba, mask=rgba.getchannel("A"))
                     image.convert("RGB").save(root / file, quality=95)
             else:
                 shutil.copyfile(row.src, root / file)

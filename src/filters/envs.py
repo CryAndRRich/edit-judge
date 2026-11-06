@@ -3,8 +3,10 @@ Curator, ultralytics, ...) can run side by side on two GPUs without reinstalling
 
 Detectors with no `install` run with the current Python. Every other `install` tuple gets its own virtual
 environment in EJ_ENVS_DIR (default /tmp/ej-envs), created with `--system-site-packages`: it sees the packages
-already installed (Kaggle's PyTorch, Transformers, ...) and only adds or overrides what the detector needs. `uv`
-makes this fast (pip install uv); without it, venv and pip are used.
+already installed (Kaggle's PyTorch, Transformers, ...) and only adds or overrides what the detector needs. An
+`isolated` detector gets an environment without the machine's packages, for libraries that bring their own torch:
+a venv that sees the machine's torchaudio or torchvision next to another torch fails to load them. `uv` makes
+this fast (pip install uv); without it, venv and pip are used.
 """
 
 import hashlib
@@ -17,20 +19,21 @@ from pathlib import Path
 ENVS_DIR = Path(os.environ.get("EJ_ENVS_DIR") or "/tmp/ej-envs")
 
 
-def env_name(install: tuple[str, ...]) -> str | None:
+def env_name(install: tuple[str, ...], isolated: bool = False) -> str | None:
     if not install:
         return None
-    return hashlib.sha1("\n".join(install).encode()).hexdigest()[:10]
+    key = "\n".join(install) + ("\nisolated" if isolated else "")
+    return hashlib.sha1(key.encode()).hexdigest()[:10]
 
 
-def env_python(install: tuple[str, ...]) -> str:
-    name = env_name(install)
+def env_python(install: tuple[str, ...], isolated: bool = False) -> str:
+    name = env_name(install, isolated)
     return sys.executable if name is None else str(ENVS_DIR / name / "bin" / "python")
 
 
-def ensure_env(install: tuple[str, ...], log=None) -> str:
+def ensure_env(install: tuple[str, ...], log=None, isolated: bool = False) -> str:
     """Create the environment of `install` if needed; returns its Python."""
-    name = env_name(install)
+    name = env_name(install, isolated)
     if name is None:
         return sys.executable
     folder = ENVS_DIR / name
@@ -43,10 +46,11 @@ def ensure_env(install: tuple[str, ...], log=None) -> str:
     def run_logged(command: list[str]) -> None:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, text=True)
 
+    inherit = [] if isolated else ["--system-site-packages"]
     if uv:
-        run_logged([uv, "venv", "--system-site-packages", "--python", sys.executable, str(folder)])
+        run_logged([uv, "venv", *inherit, "--python", sys.executable, str(folder)])
     else:
-        run_logged([sys.executable, "-m", "venv", "--system-site-packages", str(folder)])
+        run_logged([sys.executable, "-m", "venv", *inherit, str(folder)])
     for pip_args in install:
         pip = [uv, "pip", "install", "--python", str(python)] if uv else [str(python), "-m", "pip", "install", "-q"]
         run_logged(pip + pip_args.replace('"', "").split())

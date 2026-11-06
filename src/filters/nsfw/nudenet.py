@@ -9,7 +9,7 @@ class NudeNet(Detector):
     (EXPOSED), 0 when none is found. A detector score, not a calibrated probability. Runs one image at a time."""
     task, name, model_id, batch_size = "nsfw", "nudenet", "nudenet==3.4.2 (320n.onnx)", 1
     # onnxruntime-gpu first, then NudeNet without its CPU onnxruntime dependency
-    install = ("onnxruntime-gpu>=1.21,<1.24", "--no-deps nudenet==3.4.2")
+    install = ("onnxruntime-gpu[cuda,cudnn]>=1.21,<1.24", "--no-deps nudenet==3.4.2")
 
     def load(self, device):
         import importlib.util
@@ -19,6 +19,8 @@ class NudeNet(Detector):
         from nudenet import NudeDetector
         import numpy as np
         self.np = np
+        if hasattr(ort, "preload_dlls"):                 # the CUDA 12 and cuDNN libraries of the [cuda,cudnn] extra
+            ort.preload_dlls()
         weights = Path(importlib.util.find_spec("nudenet").origin).parent / "320n.onnx"
         providers = (["CUDAExecutionProvider"] if device == "cuda" else []) + ["CPUExecutionProvider"]
         self.detector = NudeDetector.__new__(NudeDetector)        # the constructor would open a CPU session

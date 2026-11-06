@@ -8,7 +8,7 @@ class EfficientNetWatermark(Detector):
     preprocessing from the timm config stored in the checkpoint (192 px centre crop); score = sigmoid(logit). The
     model card does not state the fine-tuning transform, so the centre crop may cut marks near the edges."""
     task, name, model_id, batch_size = "watermark", "efficientnet", f"{REPO}/{FILE}@{REVISION[:7]}", 32
-    install = ("timm>=0.9.16",)
+    install = ("timm==0.9.16",)      # the pickled model needs the timm it was saved with (later ConvBnAct has .aa)
 
     def load(self, device):
         import torch
