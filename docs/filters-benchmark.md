@@ -105,10 +105,108 @@ chosen on the public sets, and on our data only the share of flagged images is r
 | Plan item | NSFW | Watermark |
 |---|---|---|
 | Several detectors, including the planned baselines | done in code: 7 (opennsfw2, NudeNet, ViT, CLIP zero-shot as planned) | done in code: 6 (LAION, OCR, CLIP zero-shot as planned) |
-| Measured on a benchmark | 6 of 7 (not `clip`) | 3 of 6 (not `laion`, `clip`, `ocr`) |
-| Single models against votes of every subset (mean, weighted, any, majority) | code ready, not run | code ready, not run (only the majority of all 3 was run) |
-| Run on every original and edit of the dataset | not run | not run |
+| Measured on a benchmark | done: all 7 on 3 sets (2026-11-06) | done: all 6 on 3 sets (2026-11-06) |
+| Single models against votes of every subset (mean, weighted, any, majority) | done | done |
+| Run on every original and edit of the dataset | next (`filters_apply`: nemo + falconsai) | next (`filters_apply`: convnext) |
 | Drop flagged edits and their pairs; the sample if the original is flagged or fewer than 2 edits remain | code ready (`python -m src.rank export`) | same |
+
+## Benchmark with the shared code (2026-11-06)
+
+`notebooks/filters_nsfw_benchmark.ipynb` and `filters_watermark_benchmark.ipynb`, Kaggle 2 x T4, every model on
+every image of 3 community sets per task (sets: next section), threshold 0.5. Latency: one image (batch 1) after a
+warm-up, decoding excluded; throughput: batched, ms per image. Outputs (per-image scores, `evaluation.json`,
+`evaluation.md`) are in `work/filters/<task>/benchmark/`.
+
+**Check of the ported code.** On the sets of the first benchmarks the scores match the members' runs: NSFW on
+`deepghs` F1 nemo 0.977 (first run 0.9773), mobilenet 0.933 (0.9329), owen 0.906, falconsai 0.902, opennsfw2
+0.833, nudenet 0.638; watermark on `boomb0om` convnext 0.932 (0.9322), efficientnet 0.455 (0.4545), yolo 0.359
+(0.354, batch 16 instead of 1).
+
+### NSFW (5,352 images, 2,552 positive)
+
+| Model | Accuracy | Precision | Recall | F1 | ROC-AUC | Latency p50 / p95 (ms) | Throughput (ms/img) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| nemo (LAION CLIP NSFW head) | **0.951** | 0.949 | 0.948 | **0.948** | **0.990** | 69.9 / 75.7 | 59.7 |
+| mobilenet | 0.901 | 0.915 | 0.872 | 0.893 | 0.959 | 42.2 / 62.0 | 38.1 |
+| owen | 0.888 | 0.888 | 0.876 | 0.882 | 0.953 | 19.2 / 33.8 | 14.4 |
+| falconsai | 0.877 | 0.970 | 0.766 | 0.856 | 0.955 | 17.2 / 20.7 | 16.3 |
+| opennsfw2 (RealEdit's filter) | 0.850 | 0.951 | 0.723 | 0.821 | 0.944 | 291.2 / 315.2 | 54.3 |
+| clip (zero-shot) | 0.688 | 0.605 | **0.997** | 0.753 | 0.943 | 77.0 / 106.9 | 59.8 |
+| nudenet | 0.746 | **0.980** | 0.476 | 0.641 | 0.777 | 17.0 / 29.9 | 21.7 |
+
+F1 (accuracy) and ROC-AUC by set; false positive rate (FPR) on the clean images of each set:
+
+| Model | deepghs F1 | nsfw_xl F1 | unsafebench F1 | AUC deepghs / nsfw_xl / unsafebench | FPR deepghs / nsfw_xl / unsafebench |
+|---|---:|---:|---:|---|---|
+| nemo | 0.977 | 0.978 | 0.772 | 0.997 / 0.998 / 0.938 | 0.022 / 0.015 / 0.098 |
+| mobilenet | 0.933 | 0.930 | 0.636 | 0.979 / 0.979 / 0.833 | 0.071 / 0.061 / 0.088 |
+| owen | 0.906 | 0.932 | 0.622 | 0.949 / 0.982 / 0.844 | 0.158 / 0.083 / 0.073 |
+| falconsai | 0.902 | 0.905 | 0.482 | 0.976 / 0.985 / 0.753 | 0.011 / 0.014 / 0.038 |
+| opennsfw2 | 0.833 | 0.877 | 0.585 | 0.943 / 0.975 / 0.837 | 0.046 / 0.029 / 0.030 |
+| clip | 0.848 | 0.801 | 0.486 | 0.922 / 0.960 / 0.978 | 0.527 / 0.494 / 0.745 |
+| nudenet | 0.638 | 0.738 | 0.280 | 0.770 / 0.836 / 0.624 | 0.015 / 0.008 / 0.005 |
+
+Best votes at 0.5 by F1: clip + falconsai + nemo (mean) F1 0.955, nemo + owen (mean) 0.955; F1 gain over nemo
+alone +0.007 for 1.2-2.3 times the time.
+
+### Watermark (4,122 images, 2,062 positive)
+
+| Model | Accuracy | Precision | Recall | F1 | ROC-AUC | Latency p50 / p95 (ms) | Throughput (ms/img) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| clip (zero-shot) | **0.721** | 0.690 | **0.801** | **0.742** | 0.815 | 64.7 / 68.0 | 48.8 |
+| laion | 0.709 | 0.892 | 0.476 | 0.621 | 0.765 | 20.7 / 24.8 | 7.2 |
+| convnext | 0.710 | 0.968 | 0.435 | 0.601 | **0.868** | **8.8 / 9.2** | 9.7 |
+| ocr | 0.674 | **0.970** | 0.359 | 0.524 | 0.804 | 50.6 / 79.3 | 58.2 |
+| efficientnet | 0.564 | 0.855 | 0.155 | 0.262 | 0.602 | 18.1 / 21.2 | 6.3 |
+| yolo | 0.572 | 0.954 | 0.152 | 0.262 | 0.677 | 17.7 / 29.0 | 17.8 |
+
+| Model | boomb0om F1 | scenery F1 | wm_or_not F1 | AUC boomb0om / scenery / wm_or_not | FPR boomb0om / scenery / wm_or_not |
+|---|---:|---:|---:|---|---|
+| clip | 0.662 | 0.760 | 0.729 | 0.746 / 0.835 / 0.810 | 0.750 / 0.342 / 0.355 |
+| laion | 0.791 | 0.356 | 0.798 | 0.813 / 0.674 / 0.890 | 0.267 / 0.042 / 0.061 |
+| convnext | 0.932 | 0.200 | 0.837 | 0.971 / 0.794 / 0.951 | 0.017 / 0.015 / 0.014 |
+| ocr | 0.611 | 0.264 | 0.711 | 0.846 / 0.723 / 0.882 | 0.067 / 0.008 / 0.011 |
+| efficientnet | 0.455 | 0.100 | 0.386 | 0.667 / 0.528 / 0.665 | 0.100 / 0.024 / 0.024 |
+| yolo | 0.359 | 0.047 | 0.429 | 0.768 / 0.575 / 0.796 | 0.033 / 0.005 / 0.008 |
+
+Best vote at 0.5 by F1: clip + convnext + ocr (max) F1 0.787, +0.046 over clip alone, but its false positive rate
+is 0.37.
+
+### Choice for the dataset
+
+The benchmark sets are about half positive; in our data NSFW images and watermarks are rare (RealEdit, 92% of the
+samples, was already filtered with opennsfw2). So the false positive rate decides, not F1 at 0.5: every clean
+image flagged loses its pairs, and a flagged original loses the whole sample. Candidates at several thresholds
+(FPR over all clean benchmark images; the last column is FPR x 56,568, an upper estimate of clean images flagged):
+
+| Task | Rule | Threshold | Precision | Recall | F1 | FPR | FPR, real photos | Clean images flagged (est.) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| NSFW | nemo | 0.5 | 0.949 | 0.948 | 0.948 | 0.047 | 0.098 | ~2,650 |
+| NSFW | nemo | 0.9 | 0.977 | 0.859 | 0.914 | 0.019 | 0.045 | ~1,050 |
+| NSFW | mean nemo + owen | 0.7 | 0.983 | 0.857 | 0.915 | 0.014 | 0.015 | ~770 |
+| NSFW | mean nemo + falconsai | 0.5 | 0.978 | 0.870 | 0.921 | 0.018 | 0.031 | ~1,010 |
+| **NSFW** | **mean nemo + falconsai** | **0.7** | **0.992** | **0.759** | **0.860** | **0.006** | **0.011** | **~320** |
+| Watermark | clip | 0.5 | 0.690 | 0.801 | 0.742 | 0.360 | 0.342 | ~20,400 |
+| Watermark | max convnext + ocr | 0.5 | 0.956 | 0.545 | 0.694 | 0.025 | 0.022 | ~1,430 |
+| Watermark | mean convnext + ocr | 0.5 | 0.986 | 0.408 | 0.578 | 0.006 | 0.004 | ~330 |
+| **Watermark** | **convnext** | **0.5** | **0.968** | **0.435** | **0.601** | **0.015** | **0.015** | **~830** |
+
+"Real photos" are `unsafebench` (LAION photos) for NSFW and `scenery` (r/EarthPorn photos) for watermarks.
+
+- **NSFW: mean of nemo and falconsai, flagged at 0.7** (`configs/filters.toml`). Precision 0.992 and FPR 0.6% at a
+  recall of 0.76; about 76 ms per image together (about 20 min on the dataset with both GPUs). nemo alone at 0.5
+  has the best F1 but would flag about 10% of real clean photos.
+- **Watermark: convnext alone at 0.5.** The only model good on two sets (AUC 0.95-0.97) with FPR 1.5%, and the
+  fastest (8.8 ms). It catches stock-photo and text marks but misses most small photographers' signatures (recall
+  0.11 on `scenery`; no model reaches a usable FPR there). OCR is left out despite its low FPR on the benchmark:
+  it flags any text, and our edits often contain wanted text (memes, captions, "add text" requests).
+- Every model's scores are kept, so after the run on the dataset the threshold can be changed without running the
+  models again (`python -m src.filters vote --task T --threshold X`).
+
+Other findings: CLIP zero-shot ranks well (NSFW AUC 0.92-0.98) but its 0.5 threshold is badly calibrated (half of
+the clean images flagged); efficientnet is weak even on `scenery`, its own training set (AUC 0.53), which points to
+a preprocessing different from its fine-tuning (the card does not state it); NudeNet only finds exposed body
+parts, hence its low recall on `sexy` and `unsafebench`.
 
 ## Community evaluation sets (added 2026-11-06)
 
@@ -128,12 +226,10 @@ Rejected: sets that are the training data of a checkpoint we test (e.g. bastienp
 
 ## Next runs (on Kaggle, after approval)
 
-1. `notebooks/filters_nsfw_benchmark.ipynb` and `filters_watermark_benchmark.ipynb`, first with `SMOKE = True`
-   (20 images per model: every model loads and runs), then in full (NSFW about 1-1.5 h, watermark 30-60 min on
-   2 x T4). Output: `evaluation.md` with accuracy, precision, recall, F1, ROC-AUC per model and per set, latency of
-   one image (p50, p95) and throughput, and the best votes over subsets of models.
-2. Choose the model or vote per task from these tables, set `CHOICE` in `notebooks/filters_apply.ipynb`, run it on
-   the 56,568 dataset images (both GPUs share every model), download `filter_decisions.zip`.
-3. On the coordinator's computer: put the decisions into `work/filters/<task>/`, run `python -m src.rank export`
-   (drops flagged edits and samples, reports the counts for the data-loss funnel), then
-   `python -m src.process pack` and upload the new Kaggle dataset.
+1. Done (2026-11-06): both benchmark notebooks, all 13 detectors on 3 sets per task.
+2. `notebooks/filters_apply.ipynb` with the choice above (nsfw: nemo + falconsai, mean, 0.7; watermark: convnext,
+   0.5) on the 56,568 dataset images; download `filter_decisions.zip` (decisions and every model's scores).
+3. On the coordinator's computer: put its folders into `work/filters/`, check the counts (images flagged,
+   samples dropped) and, if needed, vote again with another threshold; then `python -m src.rank export` (drops
+   flagged edits and samples, reports the counts for the data-loss funnel), `python -m src.process pack`, and
+   upload the new version of the Kaggle dataset.

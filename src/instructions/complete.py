@@ -35,14 +35,14 @@ def results_of(client_name: str, prompt_id: str) -> dict[str, dict]:
     return {row["sample_id"]: row for path in result_files(client_name, prompt_id) for row in iter_jsonl(path)}
 
 
-def seconds_per_request(client_name: str) -> float | None:
-    speeds = []
+def seconds_per_request(client_name: str) -> dict[str, float]:
+    """Measured seconds per request of each pass (prompt id -> seconds)."""
+    speeds = {}
     for prompt_name, version in PASSES:
         meta = INSTRUCTIONS_DIR / client_name / f"{prompt_name}_v{version}.meta.json"
-        if meta.exists():
-            speeds.append(json.loads(meta.read_text()).get("seconds_per_request"))
-    speeds = [speed for speed in speeds if speed]
-    return max(speeds) if speeds else None
+        if meta.exists() and json.loads(meta.read_text()).get("seconds_per_request"):
+            speeds[f"{prompt_name}_v{version}"] = json.loads(meta.read_text())["seconds_per_request"]
+    return speeds
 
 
 def merge(client_name: str, instructions: dict[str, str] | None = None) -> dict:
@@ -71,13 +71,15 @@ def merge(client_name: str, instructions: dict[str, str] | None = None) -> dict:
                       "categories": categories, "problems": row_problems})
     folder = INSTRUCTIONS_DIR / client_name
     write_jsonl(folder / "final.jsonl", lines)
-    speed = seconds_per_request(client_name)
+    speeds = seconds_per_request(client_name)
+    slowest = max(speeds.values(), default=None)
+    seconds_left = sum(count * speeds.get(prompt_id, slowest or 0) for prompt_id, count in left.items())
     total_left = sum(left.values())
     summary = {"client": client_name, "done": len(lines), "left": dict(left), "complete": total_left == 0,
                "instruction_source": dict(Counter(line["instruction_source"] for line in lines)),
                "with_problems": sum(bool(line["problems"]) for line in lines), "problems": dict(problems),
-               "seconds_per_request": speed,
-               "hours_left": round(total_left * speed / 3600, 1) if speed else None}
+               "seconds_per_request": speeds,
+               "hours_left": round(seconds_left / 3600, 1) if speeds else None}
     write_json(folder / "final.summary.json", summary)
     return summary
 

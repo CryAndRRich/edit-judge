@@ -1,21 +1,26 @@
 # Image filters: which detectors to combine, and how (python -m src.filters vote|evaluate --task T).
-# `models` are the detectors run on the dataset (work/filters/<task>/<model>.jsonl), to choose after the benchmark;
-# the benchmark evaluation (--on benchmark) uses every model scored there.
-#   method:     mean | weighted | max | majority
-#   thresholds: per model, used by "majority" and by the per-model report (default 0.5)
+# `models` are the detectors run on the dataset (work/filters/<task>/<model>.jsonl); the benchmark evaluation
+# (--on benchmark) uses every model scored there. Choice of 2026-11-06 from the benchmark on 3 community sets per
+# task (docs/filters-benchmark.md): in our data positives are rare, so the false positive rate decides.
+#   method:     mean | weighted | max | majority (several models)
+#   thresholds: per model, used by "majority", by the per-model report, and by a single model (default 0.5)
 #   weights:    per model, used by "weighted" (default 1)
-#   threshold:  on the combined score; an image at or above it is flagged
+#   threshold:  on the combined score of several models; an image at or above it is flagged
 
 [nsfw]
-models = []
-method = "majority"
-threshold = 0.5
+# mean of NeMo (LAION CLIP NSFW head) and Falconsai, flagged at 0.7: precision 0.992, recall 0.759, false
+# positive rate 0.6% on the benchmark (single nemo at 0.5: 4.7%)
+models = ["nemo", "falconsai"]
+method = "mean"
+threshold = 0.7
 thresholds = {}
 weights = {}
 
 [watermark]
-models = []
+# ConvNeXt alone at 0.5: precision 0.968, false positive rate 1.5%; it misses most small photographers' marks
+# (recall 0.11 on the scenery set). OCR is left out: our edits often contain wanted text (memes, captions).
+models = ["convnext"]
 method = "majority"
 threshold = 0.5
-thresholds = {}
+thresholds = {convnext = 0.5}
 weights = {}

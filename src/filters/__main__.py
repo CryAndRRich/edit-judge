@@ -7,7 +7,7 @@
                                                                  score images with one model (GPU; on Kaggle)
     python -m src.filters multirun --task nsfw --on benchmark|dataset [--models a,b] [--gpus N] [--latency N]
                                                                  many models / shards over all GPUs (parallel.py)
-    python -m src.filters vote --task nsfw [--models a,b] [--method majority] [--config configs/filters.toml]
+    python -m src.filters vote --task nsfw [--models a,b] [--method mean] [--threshold 0.7] [--config ...]
                                                                  combined score and flag per dataset image
     python -m src.filters evaluate --task nsfw [--on dataset|benchmark] [--models a,b] [--config ...]
                                                                  models and voting (every subset) vs labels,
@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--model")
     parser.add_argument("--models", help="vote, evaluate: comma-separated models instead of the config's")
     parser.add_argument("--method", choices=METHODS, help="vote: instead of the config's")
+    parser.add_argument("--threshold", type=float, help="vote: flag at this combined score instead of the config's")
     parser.add_argument("--on", default="dataset", choices=SETS, help="image set: the final dataset or the benchmark")
     parser.add_argument("--scope", default="all", choices=["all", "originals", "edits"])
     parser.add_argument("--limit", type=int)
@@ -87,7 +88,9 @@ def main(argv: list[str] | None = None) -> None:
         scores = load_scores(args.task, models)
         combined = scores[models[0]] if len(models) == 1 else combine(scores, method, cfg.get("thresholds"),
                                                                        cfg.get("weights"))
-        if len(models) > 1:
+        if args.threshold is not None:
+            threshold = args.threshold
+        elif len(models) > 1:
             threshold = cfg.get("threshold", 0.5)
         else:
             threshold = cfg.get("thresholds", {}).get(models[0], 0.5)
