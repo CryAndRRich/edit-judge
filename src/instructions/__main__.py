@@ -7,6 +7,10 @@
     python -m src.instructions stats --run CLIENT:PROMPT             distribution vs RealEdit's test set
     python -m src.instructions agree --run A --run B                 agreement of two runs
     python -m src.instructions reparse --run CLIENT:PROMPT           parse stored answers again (no model)
+    python -m src.instructions complete --client NAME [--max-hours H] [--limit N]
+                                   the whole final dataset: RealEdit's instructions where they exist, the model
+                                   for the rest and for every category; then merge (complete.py)
+    python -m src.instructions merge --client NAME                   final.jsonl from the run files (no model)
 
 `--sample N` takes a fixed random subset (the same for every client and prompt), for tuning prompts.
 `--shard I/N` runs every N-th request (one process per GPU); `--max-hours` stops cleanly before a session limit.
@@ -18,6 +22,7 @@ import json
 
 from . import prompts
 from .clients import CLIENTS, get_client
+from .complete import complete, merge
 from .run import reparse, run
 from .stats import agree, stats
 
@@ -25,7 +30,7 @@ from .stats import agree, stats
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.instructions", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["list", "run", "stats", "agree", "reparse"])
+    parser.add_argument("command", choices=["list", "run", "stats", "agree", "reparse", "complete", "merge"])
     parser.add_argument("--client")
     parser.add_argument("--prompt", default="analyze")
     parser.add_argument("--version", type=int, help="prompt version (default: the latest)")
@@ -41,7 +46,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "list":
-        result = {"clients": sorted(CLIENTS), "prompts": {"analyze": prompts.versions("analyze")}}
+        result = {"clients": sorted(CLIENTS), "prompts": {name: prompts.versions(name)
+                                                          for name in ("analyze", "categorize")}}
     elif args.command == "run":
         args.version = args.version or prompts.versions(args.prompt)[-1]
         if not args.client:
@@ -54,6 +60,14 @@ def main(argv: list[str] | None = None) -> None:
             shard = (i, n)
         result = run(get_client(args.client), args.prompt, args.version, args.limit, args.sample, args.seed,
                      args.device, args.allow_cpu, args.max_tokens, shard, args.max_hours)
+    elif args.command in ("complete", "merge"):
+        if not args.client:
+            parser.error(f"{args.command} needs --client")
+        if args.command == "merge":
+            result = merge(args.client)
+        else:
+            result = complete(get_client(args.client), args.max_hours, args.device, args.allow_cpu, args.max_tokens,
+                              args.limit)
     elif args.command in ("stats", "reparse"):
         if not args.run:
             parser.error(f"{args.command} needs --run CLIENT:PROMPT")

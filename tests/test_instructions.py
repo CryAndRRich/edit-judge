@@ -7,6 +7,8 @@ from src.instructions.clients.base import Client
 from src.instructions.parse import parse_answer, split_category
 from src.instructions.run import output_path, result_files, run
 from src.instructions.stats import agree, kappa, stats
+from src.common.io import read_jsonl
+from src.paths import INSTRUCTIONS_DIR
 
 
 class FakeClient(Client):
@@ -105,6 +107,45 @@ class RunTests(unittest.TestCase):
     def test_kappa(self):
         self.assertAlmostEqual(kappa(["a", "b", "a", "b"], ["a", "b", "a", "b"]), 1.0)
         self.assertAlmostEqual(kappa(["a", "a", "b", "b"], ["a", "b", "a", "b"]), 0.0)
+
+    def test_bare_subject_takes_the_previous_operation(self):
+        row = parse_answer('{"instruction": "Remove the person.", "categories": ["Remove Background", "Person"]}',
+                           "s1", "m", "analyze_v2")
+        self.assertEqual(row.categories, [{"operation": "Remove", "subject": "Background"},
+                                          {"operation": "Remove", "subject": "Person"}])
+        row = parse_answer('{"categories": ["Rotate Background"]}', "s1", "m", "categorize_v1")
+        self.assertEqual(row.problems, ["unknown category 'Rotate Background'", "no category"])   # no instruction asked
+
+    def test_complete_uses_realedit_instructions_and_resumes(self):
+        """Samples with a RealEdit instruction get categories only; the others the full prompt; a second call
+        goes on where the first stopped; the merge takes RealEdit's instruction where there is one."""
+        from unittest import mock
+        from src.instructions import complete as completion
+        make_dataset(n_samples=6, n_edits=2)
+        realedit = {"s000": "Restore this photo.", "s001": "humorous", "s002": "Remove the dog."}
+        client = FakeClient()
+        client.name = "completion"
+        prompts_seen = []
+        original = client.generate
+
+        def generate(prompt, image=None, max_tokens=256):
+            prompts_seen.append("instruction" in prompt.split("Answer with")[1])
+            return original(prompt, image, max_tokens)
+
+        client.generate = generate
+        with mock.patch.object(completion, "realedit_instructions", lambda: realedit):
+            first = completion.complete(client, device="cpu", limit=2)
+            self.assertEqual(first["merged"]["done"], 4)
+            self.assertEqual(first["merged"]["left"], {"analyze_v2": 1, "categorize_v1": 1})
+            second = completion.complete(client, device="cpu")
+            self.assertTrue(second["merged"]["complete"])
+        self.assertEqual(sorted(prompts_seen), [False] * 3 + [True] * 3)      # 3 full prompts, 3 categories only
+        final = {row["id"]: row for row in read_jsonl(INSTRUCTIONS_DIR / "completion" / "final.jsonl")}
+        self.assertEqual(final["s001"]["instruction"], "humorous")
+        self.assertEqual(final["s001"]["instruction_source"], "realedit")
+        self.assertEqual(final["s004"]["instruction"], "Remove the text.")
+        self.assertEqual(final["s004"]["instruction_source"], "qwen")
+        self.assertEqual(final["s004"]["categories"], ["Remove Text/Patterns", "Enhance Media"])
 
 
 if __name__ == "__main__":

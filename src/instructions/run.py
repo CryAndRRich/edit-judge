@@ -57,12 +57,14 @@ def gpu_info() -> dict:
 
 def run(client, prompt_name: str = "analyze", version: int = 1, limit: int | None = None,
         sample: int | None = None, seed: int = 2026, device: str | None = None, allow_cpu: bool = False,
-        max_tokens: int = 256, shard: tuple[int, int] | None = None, max_hours: float | None = None) -> dict:
+        max_tokens: int = 256, shard: tuple[int, int] | None = None, max_hours: float | None = None,
+        only: set[str] | None = None) -> dict:
+    """`only`: analyse just these sample IDs (e.g. the ones RealEdit gives no instruction for)."""
     device = pick_device(device)
     template, prompt_id = prompts.load(prompt_name, version), f"{prompt_name}_v{version}"
     out = output_path(client.name, prompt_id, shard)
-    done = {r["sample_id"] for f in result_files(client.name, prompt_id) for r in iter_jsonl(f)}
-    todo = select(list(iter_samples()), sample, seed)
+    done = {row["sample_id"] for path in result_files(client.name, prompt_id) for row in iter_jsonl(path)}
+    todo = select([s for s in iter_samples() if only is None or s["id"] in only], sample, seed)
     if shard:
         todo = todo[shard[0]::shard[1]]
     todo = [s for s in todo if s["id"] not in done]
@@ -72,10 +74,12 @@ def run(client, prompt_name: str = "analyze", version: int = 1, limit: int | Non
     summary = {"client": client.name, "prompt": prompt_id, "shard": "%d/%d" % shard if shard else None}
     if not todo:
         return {**summary, "analysed": 0, "already_done": len(done), "left": 0}
+    print(f"{prompt_id}: {len(todo)} requests to analyse, {len(done)} done before", flush=True)
     client.load(device)
     started, analysed, failed, retried = time.monotonic(), 0, 0, 0
     for i in range(0, len(todo), client.batch_size):
         if max_hours is not None and time.monotonic() - started >= max_hours * 3600:
+            print(f"{prompt_id}: time limit of {max_hours:.2f} h reached", flush=True)
             break
         batch = todo[i:i + client.batch_size]
         prompts_ = [prompts.fill(template, s["request"]) for s in batch]
@@ -92,6 +96,11 @@ def run(client, prompt_name: str = "analyze", version: int = 1, limit: int | Non
         analysed += len(batch)
         failed += sum(bool(r.problems) for r in rows)
         append_jsonl(out, (r.to_dict() for r in rows))
+        if (i // client.batch_size + 1) % 25 == 0 or analysed == len(todo):
+            rate = analysed / (time.monotonic() - started)
+            print(f"[{time.strftime('%H:%M:%S')}] {prompt_id}: {analysed}/{len(todo)} "
+                  f"({100 * analysed // len(todo)}%), {1 / rate:.2f} s/request, "
+                  f"about {(len(todo) - analysed) / rate / 3600:.1f} h left, {failed} with problems", flush=True)
     seconds = time.monotonic() - started
     meta_path = out.with_suffix(".meta.json")
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"requests": 0, "seconds": 0.0}

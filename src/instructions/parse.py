@@ -76,13 +76,17 @@ def parse_answer(text: str, sample_id: str, model: str, prompt: str) -> RequestA
     else:                                   # fall back to "operation subject" lines anywhere in the answer
         instruction = ""
         raw_categories = re.findall(r"^\s*[-*]?\s*([A-Za-z-]+(?: [A-Za-z/-]+){1,2})\s*$", text, re.M)
-    if not instruction:
+    if not instruction and not prompt.startswith("categorize"):   # categorize prompts ask for categories only
         problems.append("no instruction")
     if instruction.strip().strip(".").lower() == HUMOROUS:
         instruction = HUMOROUS
     categories = []
-    for item in join_split_pairs([str(x) for x in raw_categories]):
+    for item in join_split_pairs([str(raw) for raw in raw_categories]):
         op, subject, extra = read_category(item)
+        if op is None and subject is None and categories and normalize(item, SUBJECTS):
+            # ["Remove Background", "Person"]: a second subject of the same operation
+            op, subject = categories[-1]["operation"], normalize(item, SUBJECTS)
+            problems.append(f"operation of the previous category for {item!r}")
         if op is None or subject is None:
             problems.append(f"unknown category {item!r}")
             continue

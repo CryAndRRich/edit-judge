@@ -68,7 +68,8 @@ with `--allow-cpu` only for an approved run).
 
 - The data goes to Kaggle as a **private** dataset shared only with the team (it contains photos of real people):
   `python -m src.process pack` writes `work/exports/editjudge-data.zip` (9.1 GB: `data/` as it is, `images/` and
-  `pairs.jsonl`). Upload it as the dataset `editjudge-data`.
+  `pairs.jsonl`). Upload it as a new version of the private dataset `cryandrrich/editjudge`; the notebooks find
+  the folder that holds `pairs.jsonl` among their inputs.
 - Start from `notebooks/kaggle_template.ipynb`: it clones the code from GitHub (the branch you set, so push first),
   sets `EJ_DATA_DIR` to the read-only input and `EJ_OUTPUT_DIR` to `/kaggle/working/out`, so the code runs unchanged
   and every result lands in one output folder. Turn on the GPU and internet in the notebook settings.
@@ -430,7 +431,20 @@ subject):
 .venv/bin/python -m src.instructions stats --run qwen2.5-vl-7b:analyze_v2   # vs RealEdit's distribution
 .venv/bin/python -m src.instructions agree --run A:analyze_v2 --run B:analyze_v2   # two models or prompts
 .venv/bin/python -m src.instructions reparse --run qwen2.5-vl-7b:analyze_v2  # parse stored answers again
+.venv/bin/python -m src.instructions complete --client qwen2.5-vl-7b --max-hours 10   # on Kaggle: whole dataset
+.venv/bin/python -m src.instructions merge --client qwen2.5-vl-7b           # final.jsonl from the run files
 ```
+
+**The whole final dataset** (`complete.py`, `notebooks/instructions_complete.ipynb`). RealEdit publishes its
+simplified instructions (the `instruction` column of its CSV files, written by the authors' LLM with the Fig. 19
+prompt) but not its categories. So the 14,861 RealEdit samples with a published instruction keep it and the model
+labels only their categories (`prompts/categorize_v1.txt`: Fig. 12 word for word, categories-only answer), while
+the 1,249 other samples (GIER, forums, one empty RealEdit instruction) get both from the model (`analyze_v2`). Our
+sample ID of a RealEdit post is sha1("realedit:<post id>")[:12], so the join needs no provenance (`realedit.py`).
+Both passes share one loaded model and one time budget (`--max-hours`); a stopped run goes on where it stopped.
+Output: `work/instructions/<client>/final.jsonl` (`id`, `instruction`, `instruction_source` realedit or qwen,
+`categories` as "operation subject" strings, `problems`) and `final.summary.json` (done, left, hours left). With
+qwen2.5-vl-7b on 2 x T4 the 16,020 requests left take about 13-14 h: two sessions of the notebook.
 
 - **Clients** (`clients/`): open VLMs with one interface (`generate_batch`); Qwen2.5-VL 3B and 7B are registered
   (bfloat16 on GPUs that support it, else float16). An answer from a batch that is not JSON (float16 can give
@@ -439,9 +453,10 @@ subject):
   `--max-hours` stops cleanly before Kaggle's 12 h limit, and the next session resumes from the copied results.
   Measured on 2 x T4 (prompt v2): qwen2.5-vl-3b 1.9 s and qwen2.5-vl-7b 3.2 s per request, so all 17,755 requests
   take about 5 h (3B, one shard per GPU) or about 16 h (7B over both GPUs: two sessions).
-- **Parsing** maps answers to RealEdit's labels and records every problem. It also reads two common slips: a
-  category split into two list items (`["Remove", "Background"]`) and extra words after the subject (`"Remove
-  Background Person"`, first subject kept). `reparse --run CLIENT:PROMPT` applies a newer parser to stored answers.
+- **Parsing** maps answers to RealEdit's labels and records every problem. It also reads three common slips: a
+  category split into two list items (`["Remove", "Background"]`), extra words after the subject (`"Remove
+  Background Person"`, first subject kept), and a bare subject after a category (`["Remove Background",
+  "Person"]`: the second subject of the same operation, `Remove Person`, noted as a problem). `reparse --run CLIENT:PROMPT` applies a newer parser to stored answers.
 - **Results:** `work/instructions/<client>/<prompt>[.part-I-of-N].jsonl`, one row per request: `instruction`, `categories`
   (`[{"operation", "subject"}]`), the model's raw answer, and parsing `problems`. Runs resume where they stopped.
 - **Prompts** are versioned files; a version used for a run is never edited (add `analyze_v2.txt` instead). The

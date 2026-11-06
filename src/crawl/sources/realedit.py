@@ -5,7 +5,7 @@ No page is crawled: `discover` and `threads` read raw/realedit/RealEdit_train_sp
 pages/albums resolved to direct files, Dropbox, Drive, ...). Edits are ordered by upvotes in the CSV.
 
 The request is the post title plus selftext, as written. RealEdit's LLM-generated `instruction`
-column is not used: it can be wrong.
+column is not stored here; the request analysis reads it from the published CSV (src/instructions/realedit.py).
 """
 
 import csv

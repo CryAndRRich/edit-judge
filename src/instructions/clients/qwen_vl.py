@@ -18,6 +18,8 @@ class QwenVL(Client):
     batch_size = 8
 
     def load(self, device: str) -> None:
+        if getattr(self, "model", None) is not None:      # loaded already (several runs in one process)
+            return
         import torch
         from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
