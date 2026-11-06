@@ -1,14 +1,17 @@
 """Image filter commands.
 
-    python -m src.filters list                                   registered detectors per task
-    python -m src.filters run --task nsfw --model NAME [--scope all|originals|edits] [--limit N]
-                              [--device cuda] [--allow-cpu]      score dataset images (GPU; on Kaggle)
+    python -m src.filters list                                   registered detectors and their extra pip packages
+    python -m src.filters prepare --task nsfw                    download the public benchmark set (on Kaggle)
+    python -m src.filters run --task nsfw --model NAME [--on dataset|benchmark] [--scope all|originals|edits]
+                              [--limit N] [--device cuda] [--allow-cpu]
+                                                                 score images (GPU; on Kaggle)
     python -m src.filters vote --task nsfw [--config configs/filters.toml]
-                                                                 combined score and flag per image
-    python -m src.filters evaluate --task nsfw [--config configs/filters.toml]
-                                                                 models and voting vs hand labels
+                                                                 combined score and flag per dataset image
+    python -m src.filters evaluate --task nsfw [--on dataset|benchmark] [--config configs/filters.toml]
+                                                                 models and voting vs labels
 
-Without a GPU, `run` refuses more than a few images (see src/common/device.py).
+`--on benchmark` uses the public set of `prepare`; the default is the final dataset. Without a GPU, `run` refuses
+more than a few images (see src/common/device.py).
 """
 
 import argparse
@@ -18,7 +21,8 @@ import tomllib
 from ..common.io import write_jsonl
 from ..paths import FILTERS_DIR, REPO_ROOT
 from . import TASKS, get_detector, registry
-from .base import run
+from .base import SETS, run
+from .benchmark import prepare
 from .evaluate import evaluate
 from .voting import combine, load_scores
 
@@ -31,25 +35,30 @@ def load_config(path: str, task: str) -> dict:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.filters", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["list", "run", "vote", "evaluate"])
+    parser.add_argument("command", choices=["list", "prepare", "run", "vote", "evaluate"])
     parser.add_argument("--task", choices=TASKS)
     parser.add_argument("--model")
+    parser.add_argument("--on", default="dataset", choices=SETS, help="image set: the final dataset or the benchmark")
     parser.add_argument("--scope", default="all", choices=["all", "originals", "edits"])
     parser.add_argument("--limit", type=int)
     parser.add_argument("--device")
     parser.add_argument("--allow-cpu", action="store_true", help="run: allow a large run without a GPU (approved runs only)")
     parser.add_argument("--config", default="configs/filters.toml")
+    parser.add_argument("--allow-local", action="store_true", help="prepare: allow the download outside Kaggle")
     args = parser.parse_args(argv)
 
     if args.command == "list":
-        print(json.dumps({t: sorted(registry(t)) for t in TASKS}, indent=1))
+        print(json.dumps({t: {n: list(get_detector(t, n).install) for n in sorted(registry(t))} for t in TASKS},
+                         indent=1))
         return
     if not args.task:
         parser.error("--task is required")
-    if args.command == "run":
+    if args.command == "prepare":
+        result = prepare(args.task, args.allow_local)
+    elif args.command == "run":
         if not args.model:
             parser.error("run needs --model")
-        result = run(get_detector(args.task, args.model), args.scope, args.limit, args.device, args.allow_cpu)
+        result = run(get_detector(args.task, args.model), args.scope, args.limit, args.device, args.allow_cpu, args.on)
     elif args.command == "vote":
         cfg = load_config(args.config, args.task)
         scores = load_scores(args.task, cfg.get("models", []))
@@ -60,7 +69,7 @@ def main(argv: list[str] | None = None) -> None:
         result = {"images": len(combined), "flagged": sum(s >= t for s in combined.values()),
                   "method": cfg.get("method", "majority"), "models": cfg.get("models", [])}
     else:
-        result = evaluate(args.task, load_config(args.config, args.task))
+        result = evaluate(args.task, load_config(args.config, args.task), args.on)
     print(json.dumps(result, indent=1))
 
 

@@ -1,5 +1,6 @@
 # Image filters: which detectors to combine, and how (python -m src.filters vote|evaluate --task T).
-# Add a model here once its scores exist in data/filters/<task>/<model>.jsonl.
+# `models` are the detectors run on the dataset (work/filters/<task>/<model>.jsonl), to choose after the benchmark;
+# the benchmark evaluation (--on benchmark) uses every model scored there.
 #   method:     mean | weighted | max | majority
 #   thresholds: per model, used by "majority" and by the per-model report (default 0.5)
 #   weights:    per model, used by "weighted" (default 1)

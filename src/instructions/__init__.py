@@ -6,6 +6,6 @@ categories, one per task in the request.
 - prompts/: versioned prompt files (analyze_v1 = RealEdit's two prompts in one call);
 - clients/: open VLMs (Qwen2.5-VL 3B and 7B) with one interface;
 - run.py: the resumable runner; stats.py: distribution vs RealEdit and agreement between runs.
-Results: data/instructions/<client>/<prompt>.jsonl. The raw request is always kept; simplified instructions are
+Results: work/instructions/<client>/<prompt>.jsonl. The raw request is always kept; simplified instructions are
 never used as a training signal.
 """

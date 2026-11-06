@@ -1,9 +1,11 @@
-"""Watermark detectors (logos, signatures and stock-photo marks added to an image).
+"""Watermark detectors (logos, signatures and stock-photo marks added to an image). Each scores P(watermark).
 
-Register each detector here as name -> "module:Class" (module relative to this package), e.g.
-    DETECTORS = {"laion": ".laion:LaionWatermark"}
-and write the class in its own file, subclassing src.filters.base.Detector with task = "watermark".
-Candidates: the LAION watermark classifier, an OCR text detector, CLIP zero-shot.
+The three models of the team's watermark benchmark (docs/filters-benchmark.md), as name -> "module:Class". The
+checkpoints are downloaded at pinned Hugging Face revisions and loaded with torch.load(weights_only=True).
 """
 
-DETECTORS: dict[str, str] = {}
+DETECTORS: dict[str, str] = {
+    "convnext": ".convnext:ConvNextWatermark",          # boomb0om ConvNeXt-tiny classifier
+    "efficientnet": ".efficientnet:EfficientNetWatermark",  # qwertyforce EfficientNetV2-B0 classifier
+    "yolo": ".yolo:YoloWatermark",                      # qfisch YOLOv8n logo/text box detector
+}

@@ -2,8 +2,8 @@
 
     python -m src.rank merge [--version v1]
 
-Reads data/ranking/<version>/results/<slot>/*.json (one folder per annotator slot R1-R9, as in assignments.csv),
-checks every file against the manifest and the dataset, and writes data/ranking/<version>/labels/:
+Reads work/ranking/<version>/results/<slot>/*.json (one folder per annotator slot R1-R9, as in assignments.csv),
+checks every file against the manifest and the dataset, and writes work/ranking/<version>/labels/:
 
 - rankings.jsonl: per sample, the rankings and skips of each annotator;
 - pairs.jsonl: per sample and pair of edits, the votes and the majority label;
@@ -155,6 +155,9 @@ def main(argv: list[str] | None = None) -> None:
     for a in slots:
         shared = [v for k, v in pair_votes.items() if a in k]
         rec = [r for s in records.values() for b, r in s.items() if b == a]
+        if not rec:                                           # no results from this slot (yet)
+            per_slot[a] = {"names": {}, "samples": 0}
+            continue
         per_slot[a] = {
             "names": dict(names[a]),
             "samples": len(rec),
@@ -186,6 +189,9 @@ def main(argv: list[str] | None = None) -> None:
           f"same best edit by all three {summary['same_best_edit_all_three']}")
     print(f"{'slot':5}{'samples':>8}{'skip':>6}{'agree':>7}{'vs maj':>8}{'sec':>7}{'top=01':>8}{'chance':>8}  names")
     for a, s in per_slot.items():
+        if not s["samples"]:
+            print(f"{a:5}{0:8}  (no results)")
+            continue
         print(f"{a:5}{s['samples']:8}{s['skipped']:6}{s['agreement_with_others']:7}"
               f"{s['agreement_with_majority_of_other_two'] or 0:8}{s['median_seconds'] or 0:7}"
               f"{s['rank1_is_first_edit']:8}{s['rank1_is_first_edit_by_chance']:8}  {', '.join(s['names'])}")

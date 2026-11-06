@@ -1,6 +1,6 @@
 """Image filters that remove samples before training: sensitive content (nsfw/) and watermarks (watermark/).
 
-Several detectors run per task; each writes its scores to data/filters/<task>/<model>.jsonl (base.py). The scores
+Several detectors run per task; each writes its scores to work/filters/<task>/<model>.jsonl (base.py). The scores
 are then combined (voting.py) and compared with hand labels (evaluate.py), to decide between a vote of several
 models and the single best model (faster). Commands: python -m src.filters --help.
 """

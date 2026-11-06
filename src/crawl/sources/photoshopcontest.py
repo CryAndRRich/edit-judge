@@ -21,7 +21,6 @@ from .base import Source
 log = logging.getLogger(__name__)
 
 CONTEST = re.compile(r"/photoshop-contest/(\d+)/([^/?#]+)\.html")
-ENTRIES = re.compile(r"\((\d+)\)")
 PAGE_SIZE = 16
 
 

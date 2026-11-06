@@ -3,13 +3,14 @@
     python -m src.rank plan | zip | app | results ...   chunks and zip files (chunks.py)
     python -m src.rank merge [--version v1]             check results, agreement (merge.py)
     python -m src.rank finalize [--version v1]          final rankings (finalize.py)
+    python -m src.rank export [--dry-run]               data/pairs.jsonl and data/images/ (export.py)
 
 Run a command with --help for its options.
 """
 
 import sys
 
-from . import chunks, finalize, merge
+from . import chunks, export, finalize, merge
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -21,6 +22,8 @@ def main(argv: list[str] | None = None) -> None:
         merge.main(argv[1:])
     elif argv[0] == "finalize":
         finalize.main(argv[1:])
+    elif argv[0] == "export":
+        export.main(argv[1:])
     else:
         chunks.main(argv)
 

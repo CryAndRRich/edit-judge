@@ -56,6 +56,7 @@ ALIASES = {
     "manmade structure": "Manmade-Structure", "structure": "Manmade-Structure", "object": "Manmade-Structure",
     # plain words small models use instead of the taxonomy names
     "people": "Person", "persons": "Person", "human": "Person", "humans": "Person", "face": "Body-Part",
+    "hair": "Body-Part", "image": "Media", "photo": "Media", "picture": "Media",
 }
 
 

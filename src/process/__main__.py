@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-side", type=int, default=1024, help="normalize: longest image side, in px")
     parser.add_argument("--quality", type=int, default=92, help="normalize: JPEG quality")
     parser.add_argument("--workers", type=int, help="normalize: parallel processes (default: CPU count - 1)")
-    parser.add_argument("--out", help="pack: zip file to write (default: data/exports/editjudge-data.zip)")
+    parser.add_argument("--out", help="pack: zip file to write (default: work/exports/editjudge-data.zip)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 

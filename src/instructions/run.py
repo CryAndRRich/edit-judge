@@ -1,5 +1,5 @@
 """Run a VLM client over the requests: one call per request (the request text, its original image, and the
-prompt), answers parsed and appended to data/instructions/<client>/<prompt>.jsonl after every batch, so a run can
+prompt), answers parsed and appended to work/instructions/<client>/<prompt>.jsonl after every batch, so a run can
 be stopped and started again. <prompt>.meta.json records the device and the time per request.
 
 Long runs can be split:
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from ..common.dataset import iter_samples
 from ..common.device import check_heavy_run, pick_device
-from ..common.io import append_jsonl, iter_jsonl, write_json
+from ..common.io import append_jsonl, iter_jsonl, read_jsonl, write_json, write_jsonl
 from ..paths import INSTRUCTIONS_DIR, SAMPLES_DIR
 from . import prompts
 from .parse import parse_answer
@@ -104,3 +104,17 @@ def run(client, prompt_name: str = "analyze", version: int = 1, limit: int | Non
     return {**summary, "analysed": analysed, "with_problems": failed, "retried_alone": retried,
             "already_done": len(done), "left": len(todo) - analysed, "device": device,
             "seconds_per_request": round(seconds / max(analysed, 1), 3)}
+
+
+def reparse(run_id: str) -> dict:
+    """Parse the stored raw answers of a run again with the current parser (after it learned a new answer
+    format), without calling the model. Rewrites the result files in place."""
+    client, prompt_id = run_id.split(":")
+    before = after = 0
+    for f in result_files(client, prompt_id):
+        rows = read_jsonl(f)
+        new = [parse_answer(r["raw"], r["sample_id"], r["model"], r["prompt"]).to_dict() for r in rows]
+        before += sum(bool(r["instruction"] and r["categories"]) for r in rows)
+        after += sum(bool(r["instruction"] and r["categories"]) for r in new)
+        write_jsonl(f, new)
+    return {"run": run_id, "usable_before": before, "usable_after": after}

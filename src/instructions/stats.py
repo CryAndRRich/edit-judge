@@ -55,7 +55,7 @@ def kappa(a: list[str], b: list[str]) -> float:
 
 def agree(run_a: str, run_b: str) -> dict:
     a, b = load_run(run_a), load_run(run_b)
-    common = [i for i in a if i in b and not a[i]["problems"] and not b[i]["problems"]]
+    common = [i for i in a if i in b and a[i]["categories"] and b[i]["categories"]]     # usable in both
     pairs = lambda r: {(c["operation"], c["subject"]) for c in r["categories"]}
     ops = lambda r: {c["operation"] for c in r["categories"]}
     first = lambda r: r["categories"][0]["operation"]

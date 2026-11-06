@@ -10,14 +10,14 @@ Only images scored by every model are combined.
 """
 
 from ..common.io import iter_jsonl
-from ..paths import FILTERS_DIR
+from .base import score_path
 
 METHODS = ("mean", "weighted", "max", "majority")
 
 
-def load_scores(task: str, models: list[str]) -> dict[str, dict[str, float]]:
+def load_scores(task: str, models: list[str], on: str = "dataset") -> dict[str, dict[str, float]]:
     """model -> image_id -> score."""
-    return {m: {r["image_id"]: r["score"] for r in iter_jsonl(FILTERS_DIR / task / f"{m}.jsonl")} for m in models}
+    return {m: {r["image_id"]: r["score"] for r in iter_jsonl(score_path(task, m, on))} for m in models}
 
 
 def combine(scores: dict[str, dict[str, float]], method: str, thresholds: dict | None = None,

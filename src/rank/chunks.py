@@ -6,9 +6,9 @@ and package chunks and the app as zip files to hand out.
     python -m src.rank app
     python -m src.rank results --name Hai
 
-`plan` freezes the version: it writes data/ranking/<version>/manifest.json (chunk -> sample IDs) and
+`plan` freezes the version: it writes work/ranking/<version>/manifest.json (chunk -> sample IDs) and
 assignments.csv (chunk, annotator slot, pass). A later version only takes samples that no earlier
-manifest contains, so new data gets its own chunks. Zip files go to data/ranking/dist/.
+manifest contains, so new data gets its own chunks. Zip files go to work/ranking/dist/.
 """
 
 import argparse

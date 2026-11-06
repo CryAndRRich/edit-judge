@@ -2,6 +2,7 @@
 the Reddit upvote order.
 
     python -m src.rank finalize [--version v1] [--community-weight 0.5]
+                                [--stand-in upvote [--min-accuracy 0.6] [--hard-margin 0.1]]
 
 Method (see README.md, "Final ranking"):
 
@@ -19,11 +20,23 @@ Method (see README.md, "Final ranking"):
    P(x better than y) = sigmoid(L).
 5. Final ranking. The order with the highest total log P over all its pairs (exact search over orders, by
    dynamic programming over subsets). Ties go to the upvote order, then to the edit key.
-6. Status. "skipped" when at least one annotator skipped the sample (no ranking); "ranked" when at least one
-   human voter with weight > 0 ranked it; "reference only" otherwise. `confidence` is the mean of P over the
-   adjacent pairs of the final ranking.
+6. Missing members (`--stand-in upvote`, used for v2 when some members could not send results in time). For a
+   RealEdit sample, every assigned slot without a result is replaced by the upvote order, with the median human
+   weight (one typical member); the reference vote of step 3 stays. A sample with a missing slot and no upvote
+   order (not RealEdit) has no stand-in and is dropped ("missing"). Without the option, missing slots are ignored.
+   With the option, two more replacements clean noisy labels (the plan: where the team's labels are too noisy to
+   learn from, the RealEdit order is used instead):
+   - noisy members (`--min-accuracy`): a member whose estimated accuracy is below the value is treated as missing:
+     replaced by the upvote order in RealEdit samples (which stay ranked even when every member was replaced), left
+     out elsewhere (a non-RealEdit sample left with no member is dropped);
+   - hard pairs (`--hard-margin`): in a RealEdit sample, a pair whose probability is within the margin of 0.5 (the
+     votes nearly cancel out) takes the upvote order, with the confidence of one typical member
+     (P = sigmoid(median human weight)). The final order is searched after this replacement.
+7. Status. "skipped" when at least one annotator skipped the sample (no ranking); "missing" as above; "ranked"
+   when at least one human voter with weight > 0 or one stand-in ranked it; "reference only" otherwise. `confidence` is the mean
+   of P over the adjacent pairs of the final ranking.
 
-Writes data/ranking/<version>/final/: rankings.jsonl, pairs.jsonl (soft labels for the scorer), summary.json.
+Writes work/ranking/<version>/final/: rankings.jsonl, pairs.jsonl (soft labels for the scorer), summary.json.
 """
 
 import argparse
@@ -142,6 +155,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--version", default="v1")
     parser.add_argument("--community-weight", type=float, default=0.5,
                         help="weight of the upvote order, as a multiple of the median human weight")
+    parser.add_argument("--stand-in", choices=("none", "upvote"), default="none",
+                        help="replace the missing results of assigned slots by the upvote order (RealEdit only)")
+    parser.add_argument("--min-accuracy", type=float, default=0.0,
+                        help="with --stand-in: members with a lower estimated accuracy are replaced too")
+    parser.add_argument("--hard-margin", type=float, default=0.0,
+                        help="with --stand-in: pairs with |P - 0.5| below this take the upvote order")
     args = parser.parse_args(argv)
 
     manifest, chunk_of, team, keys = load(args.version)
@@ -158,6 +177,9 @@ def main(argv: list[str] | None = None) -> None:
     w, p = estimate_weights(units)
     human_median = statistics.median(x for x in w.values() if x > 0)
     w_ref = args.community_weight * human_median
+    w_stand = human_median
+    stand_ins, hard = Counter(), [0, 0]
+    noisy = {v for v in w if p[v] < args.min_accuracy} if args.stand_in != "none" else set()
 
     out = RANKING_DIR / args.version / "final"
     out.mkdir(exist_ok=True)
@@ -167,20 +189,35 @@ def main(argv: list[str] | None = None) -> None:
             ranked, skipped = samples[sid]
             k = keys[sid]
             ref = upvotes.get(sid)
+            missing = sorted(team[chunk_of[sid]] - set(ranked) - set(skipped)) if args.stand_in != "none" else []
             base = {"id": sid, "source": sources.get(sid), "chunk": chunk_of[sid], "n_edits": len(k),
                     "rankings": {v: rk for v, rk in ranked.items()}, "skips": skipped}
-            if skipped:
-                status["skipped"] += 1
-                fr.write(json.dumps({**base, "status": "skipped", "ranking": None}, ensure_ascii=False) + "\n")
+            replaced = sorted(v for v in ranked if v in noisy)
+            if missing:
+                base["stand_ins"] = missing
+            if replaced:
+                base["replaced"] = replaced
+            active = {v: rk for v, rk in ranked.items() if v not in noisy}
+            if skipped or (missing and not ref) or not (active or ref):
+                st = "skipped" if skipped else "missing"
+                status[st] += 1
+                fr.write(json.dumps({**base, "status": st, "ranking": None}, ensure_ascii=False) + "\n")
                 continue
-            signs = {v: pair_signs(rk, k) for v, rk in ranked.items()}
+            n_stand = len(missing) + (len(replaced) if ref else 0)
+            stand_ins[n_stand] += 1
+            signs = {v: pair_signs(rk, k) for v, rk in active.items()}
             ref_signs = pair_signs(ref, k) if ref else {}
-            human_weight = sum(w[v] for v in ranked)
-            prob, logp = {}, {}
+            human_weight = sum(w[v] for v in active)
+            prob, logp, hard_pairs = {}, {}, set()
             for x, y in itertools.combinations(k, 2):
-                team_l = sum(w[v] * signs[v][(x, y)] for v in ranked)
-                l = team_l + w_ref * ref_signs.get((x, y), 0)
+                team_l = sum(w[v] * signs[v][(x, y)] for v in active)
+                l = team_l + (w_ref + w_stand * n_stand) * ref_signs.get((x, y), 0)
                 prob[(x, y)] = sigmoid(l)
+                hard[1] += 1
+                if ref and abs(prob[(x, y)] - 0.5) < args.hard_margin:
+                    prob[(x, y)] = sigmoid(w_stand * ref_signs[(x, y)])
+                    hard_pairs.add((x, y))
+                    hard[0] += 1
                 logp[(x, y)] = math.log(max(prob[(x, y)], 1e-12))
                 logp[(y, x)] = math.log(max(1 - prob[(x, y)], 1e-12))
                 if ref and team_l != 0:                   # does the upvote order agree with the team alone?
@@ -189,7 +226,7 @@ def main(argv: list[str] | None = None) -> None:
             order = best_order(k, logp, ref or k)
             pos = {e: i for i, e in enumerate(order)}
             adj = [prob[(a, b)] if (a, b) in prob else 1 - prob[(b, a)] for a, b in zip(order, order[1:])]
-            st = "ranked" if human_weight > 0 else "reference only" if ref else "no information"
+            st = "ranked" if human_weight > 0 or n_stand else "reference only" if ref else "no information"
             status[st] += 1
             conf = round(sum(adj) / len(adj), 3)
             conf_all.append(conf)
@@ -200,7 +237,8 @@ def main(argv: list[str] | None = None) -> None:
                                  "upvote_order": ref}, ensure_ascii=False) + "\n")
             for (x, y), px in prob.items():
                 fp.write(json.dumps({"id": sid, "a": x, "b": y, "p_a": round(px, 4),
-                                     "winner": x if pos[x] < pos[y] else y, "status": st}) + "\n")
+                                     "winner": x if pos[x] < pos[y] else y, "status": st,
+                                     **({"hard": True} if (x, y) in hard_pairs else {})}) + "\n")
 
     summary = {
         "version": args.version,
@@ -209,6 +247,11 @@ def main(argv: list[str] | None = None) -> None:
         "voters": {v: {"accuracy": round(p[v], 3), "weight": round(w[v], 3)}
                    for v in sorted(w, key=lambda v: int(v[1:]))},
         "upvote_order_weight": round(w_ref, 3),
+        "stand_in": {"mode": args.stand_in, "weight_per_missing_slot": round(w_stand, 3),
+                     "min_accuracy": args.min_accuracy, "replaced_members": sorted(noisy, key=lambda v: int(v[1:])),
+                     "hard_margin": args.hard_margin, "hard_pairs_replaced": hard[0], "pairs_of_ranked_samples": hard[1],
+                     "ranked_samples_by_stand_ins": {str(n): c for n, c in sorted(stand_ins.items())}}
+        if args.stand_in != "none" else None,
         "confidence": {"mean": round(statistics.mean(conf_all), 3),
                        "quartiles": [round(q, 3) for q in statistics.quantiles(conf_all, n=4)]},
         "final_equals_upvote_order": round(ref_agree[0] / ref_agree[1], 3) if ref_agree[1] else None,

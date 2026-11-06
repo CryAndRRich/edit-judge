@@ -37,6 +37,7 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(split_category("Open-Ended Other"), ("Open-Ended", "Other"))
         self.assertEqual(split_category("Formatting Media"), ("Image-Formatting", "Media"))
         self.assertEqual(split_category("Remove People"), ("Remove", "Person"))
+        self.assertEqual(split_category("Enhance Image"), ("Enhance", "Media"))
         self.assertEqual(split_category("Fly Person"), (None, None))
 
     def test_answer(self):
@@ -45,6 +46,15 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(r.is_humorous)
         self.assertEqual(r.categories, [{"operation": "Open-Ended", "subject": "Other"}])
         self.assertEqual(r.problems, ["unknown category 'Dance Person'"])
+
+    def test_split_pairs_and_extra_words(self):
+        r = parse_answer('{"instruction": "x", "categories": ["Remove", "Background", "Add Person Background"]}',
+                         "s", "m", "p")
+        self.assertEqual(r.categories, [{"operation": "Remove", "subject": "Background"},
+                                        {"operation": "Add", "subject": "Person"}])
+        self.assertEqual(r.problems, ["extra words in 'Add Person Background'"])
+        r = parse_answer('{"instruction": "x", "categories": ["Replace Person", "Person"]}', "s", "m", "p")
+        self.assertEqual(len(r.categories), 1)
 
     def test_fallback_without_json(self):
         r = parse_answer("Remove Person\nChange-Color Background", "s", "m", "p")

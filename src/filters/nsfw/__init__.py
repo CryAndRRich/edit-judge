@@ -1,9 +1,13 @@
-"""Sensitive-content detectors (nudity, sexual content).
+"""Sensitive-content detectors (nudity, sexual content). Each scores P(NSFW) for an image.
 
-Register each detector here as name -> "module:Class" (module relative to this package), e.g.
-    DETECTORS = {"nudenet": ".nudenet:NudeNet"}
-and write the class in its own file (nudenet.py), subclassing src.filters.base.Detector with task = "nsfw".
-Candidates: NudeNet (ONNX), a ViT NSFW classifier from Hugging Face, OpenNSFW2 (needs TensorFlow), CLIP zero-shot.
+The six models of the team's NSFW benchmark (docs/filters-benchmark.md), as name -> "module:Class":
 """
 
-DETECTORS: dict[str, str] = {}
+DETECTORS: dict[str, str] = {
+    "falconsai": ".falconsai:Falconsai",          # ViT classifier (Transformers)
+    "owen": ".owen:OwenElliott",                  # timm classifier, SFW / NSFW / NSFL
+    "nudenet": ".nudenet:NudeNet",                # exposed-body-part detector (ONNX)
+    "opennsfw2": ".opennsfw2:OpenNSFW2",          # Yahoo Open-NSFW (TensorFlow)
+    "mobilenet": ".mobilenet:MobileNetNSFW",      # GantMan MobileNetV2, 5 classes (TensorFlow)
+    "nemo": ".nemo:NemoCurator",                  # NVIDIA NeMo Curator: CLIP ViT-L/14 embedding + NSFW scorer
+}

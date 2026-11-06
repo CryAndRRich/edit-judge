@@ -6,6 +6,7 @@
                                    [--shard I/N] [--max-hours H]     analyse requests (GPU; on Kaggle)
     python -m src.instructions stats --run CLIENT:PROMPT             distribution vs RealEdit's test set
     python -m src.instructions agree --run A --run B                 agreement of two runs
+    python -m src.instructions reparse --run CLIENT:PROMPT           parse stored answers again (no model)
 
 `--sample N` takes a fixed random subset (the same for every client and prompt), for tuning prompts.
 `--shard I/N` runs every N-th request (one process per GPU); `--max-hours` stops cleanly before a session limit.
@@ -17,14 +18,14 @@ import json
 
 from . import prompts
 from .clients import CLIENTS, get_client
-from .run import run
+from .run import reparse, run
 from .stats import agree, stats
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.instructions", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["list", "run", "stats", "agree"])
+    parser.add_argument("command", choices=["list", "run", "stats", "agree", "reparse"])
     parser.add_argument("--client")
     parser.add_argument("--prompt", default="analyze")
     parser.add_argument("--version", type=int, help="prompt version (default: the latest)")
@@ -53,10 +54,10 @@ def main(argv: list[str] | None = None) -> None:
             shard = (i, n)
         result = run(get_client(args.client), args.prompt, args.version, args.limit, args.sample, args.seed,
                      args.device, args.allow_cpu, args.max_tokens, shard, args.max_hours)
-    elif args.command == "stats":
+    elif args.command in ("stats", "reparse"):
         if not args.run:
-            parser.error("stats needs --run CLIENT:PROMPT")
-        result = stats(args.run[0])
+            parser.error(f"{args.command} needs --run CLIENT:PROMPT")
+        result = (stats if args.command == "stats" else reparse)(args.run[0])
     else:
         if not args.run or len(args.run) != 2:
             parser.error("agree needs two --run")
