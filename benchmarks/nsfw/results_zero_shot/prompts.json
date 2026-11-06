@@ -1,0 +1,22 @@
+{
+  "drawings": [
+    "a non-sexual drawing or cartoon with no nudity.",
+    "a safe illustration or artwork without sexual content."
+  ],
+  "hentai": [
+    "an explicit sexual anime or manga illustration.",
+    "a pornographic cartoon depicting nudity or sexual activity."
+  ],
+  "neutral": [
+    "an ordinary non-sexual photograph of everyday life.",
+    "a safe photograph of people, objects, or scenery without sexual content."
+  ],
+  "porn": [
+    "an explicit pornographic photograph depicting adult nudity or sexual activity.",
+    "a sexually explicit photograph with exposed genitals or sexual intercourse."
+  ],
+  "sexy": [
+    "a sexually suggestive photograph of an adult in lingerie or revealing clothing.",
+    "an erotic photograph of an adult posing in underwear or a swimsuit."
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "source": "Saved cell outputs in ../Nude2.ipynb",
+  "notebook_sha256": "73dbdf4f4694285155a52afac3867710f6f5e546348d0473d4114f15d742b471",
+  "benchmark_sha256": "261b3cca292d7cd6b31ba92ac20ad93c7336c11bb7779b2012d48a1104457f3b",
+  "dataset": "deepghs/nsfw_detect",
+  "archive": "nsfw_dataset_v1.zip",
+  "sample_seed": 42,
+  "samples_per_class": 400,
+  "n_images": 2000,
+  "models": [
+    "MobileCLIP2-S0",
+    "SigLIP2-Base"
+  ],
+  "nsfw_labels": [
+    "hentai",
+    "porn",
+    "sexy"
+  ],
+  "sfw_labels": [
+    "drawings",
+    "neutral"
+  ],
+  "batch_size": 1,
+  "warmup_images": 3,
+  "threshold": 0.5,
+  "precision": "FP32",
+  "prompts_sha256": "b477715381a8ef6aeec5000a3702a6066415baa89480a09d6692c55d7d5b715a",
+  "device_output": "Thiết bị: cuda:0 Tesla T4\nKết quả: /kaggle/working/zero_shot_benchmark_results\n",
+  "precision_note": "Tables extracted from saved outputs; quality rounded to 4 decimals, performance to 3. Not full-precision runtime CSVs.",
+  "package_versions_note": "Only versions explicitly printed in saved installation output are included.",
+  "raw_per_image_predictions_included": false,
+  "checkpoint_revisions_note": "Exact resolved checkpoint SHAs are in the runtime environment.json; not inferred from current main revisions."
+}

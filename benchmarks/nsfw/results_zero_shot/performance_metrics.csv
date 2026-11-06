@@ -1,0 +1,3 @@
+model,n_images,device,precision,batch_size,mean_latency_ms,median_latency_ms,p95_latency_ms,throughput_img_s,total_inference_s,peak_gpu_allocated_mb,process_rss_after_mb,setup_s,text_cache_s,parameters_m,vision_parameters_m,checkpoint_mb,image_size
+MobileCLIP2-S0,2000,cuda:0,FP32,1,17.417,17.306,19.871,57.414,34.835,309.318,1776.668,10.074,0.178,74.835,11.407,285.781,256
+SigLIP2-Base,2000,cuda:0,FP32,1,20.179,20.138,22.518,49.558,40.357,1448.449,2114.328,18.481,0.050,375.188,92.884,1431.275,224
