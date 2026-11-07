@@ -32,7 +32,7 @@ class EditReward(RewardModel):
 
     def load(self, device: str) -> None:
         import torch
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import hf_hub_download
         from safetensors import safe_open
         from transformers import AutoProcessor
 
@@ -53,9 +53,8 @@ class EditReward(RewardModel):
             attn_implementation="sdpa", use_cache=False, device_map="auto" if device == "cuda" else None)
         model.resize_token_embeddings(len(self.processor.tokenizer))
         parameters = dict(model.named_parameters()) | dict(model.named_buffers())
-        folder = snapshot_download(CHECKPOINT)
-        loaded = set()
-        with safe_open(f"{folder}/model.safetensors", framework="pt", device="cpu") as checkpoint:
+        loaded = set()             # only the weights file (not the whole repository)
+        with safe_open(hf_hub_download(CHECKPOINT, "model.safetensors"), framework="pt", device="cpu") as checkpoint:
             for key in checkpoint.keys():
                 name = key.removeprefix("model.") if key.startswith("model.") and key not in parameters else key
                 if name not in parameters:

@@ -24,7 +24,7 @@ from .base import RewardModel
 
 COMMIT = "78f8051059b34fef8e0032ccb40561c23a2ddbbb"
 CODE_URL = f"https://github.com/THUDM/ImageReward/archive/{COMMIT}.zip"
-WEIGHTS = "THUDM/ImageReward"          # ImageReward.pt and med_config.json, as ImageReward.load downloads them
+WEIGHTS = "zai-org/ImageReward"        # ImageReward.pt and med_config.json (the repo was THUDM/ImageReward)
 
 
 def download_code(folder: Path) -> Path:

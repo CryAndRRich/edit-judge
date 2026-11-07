@@ -6,8 +6,14 @@ current Python. Every other `install` tuple gets its own virtual environment in 
 /tmp/ej-envs), created with `--system-site-packages`: it sees the packages already installed (Kaggle's PyTorch,
 Transformers, ...) and only adds or overrides what the model needs. An `isolated` model gets an environment
 without the machine's packages, for libraries that bring their own torch: a venv that sees the machine's
-torchaudio or torchvision next to another torch fails to load them. `uv` makes this fast (pip install uv); without
-it, venv and pip are used.
+torchaudio or torchvision next to another torch fails to load them.
+
+Installers: an environment that sees the machine's packages is filled with pip, which counts those packages as
+installed. uv does not (it only looks inside the environment), so it would download torch and its CUDA libraries
+again into every environment (several GB, and a torch that may not match the machine's torchvision). uv is used
+only for isolated environments, where everything is installed anyway and uv is much faster (pip install uv).
+The environment itself is created by uv when it is there, with pip seeded into it (`--seed`): Kaggle's Debian
+Python may lack ensurepip, which `python -m venv` needs.
 """
 
 import hashlib
@@ -49,11 +55,12 @@ def ensure_env(install: tuple[str, ...], log=None, isolated: bool = False) -> st
 
     inherit = [] if isolated else ["--system-site-packages"]
     if uv:
-        run_logged([uv, "venv", *inherit, "--python", sys.executable, str(folder)])
+        run_logged([uv, "venv", "--seed", *inherit, "--python", sys.executable, str(folder)])
     else:
         run_logged([sys.executable, "-m", "venv", *inherit, str(folder)])
     for pip_args in install:
-        pip = [uv, "pip", "install", "--python", str(python)] if uv else [str(python), "-m", "pip", "install", "-q"]
+        pip = ([uv, "pip", "install", "--python", str(python)] if uv and isolated
+               else [str(python), "-m", "pip", "install", "-q", "--disable-pip-version-check"])
         run_logged(pip + pip_args.replace('"', "").split())
     (folder / ".ready").write_text("\n".join(install) + "\n")
     return str(python)

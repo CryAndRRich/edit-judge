@@ -9,12 +9,16 @@ on where it stopped:
   was copied in) are skipped;
 - `max_hours` stops before the next batch once that time has passed;
 - `shard=(i, n)` takes every n-th edit (one process per GPU, for models that fit one GPU);
-- images are decoded in threads while the model works on the previous batch.
+- images are decoded in threads while the model works on the previous batch;
+- a result that failed inside a batch (no score, a score that is not finite, or an answer that could not be
+  parsed) is scored again alone: float16 batches with padding can give a broken output ("!!!!" from a VLM, an
+  overflow) that the same input alone does not. A score that is still not finite is written as null.
 <model>.meta.json records the device, the time per edit and the totals.
 """
 
 import hashlib
 import json
+import math
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -56,6 +60,28 @@ class RewardModel:
     def score(self, batch: list[tuple[EditItem, Image.Image, Image.Image]]) -> list[dict]:
         """For each (item, original image, edited image), RGB: {"score": float or None, ...details}."""
         raise NotImplementedError
+
+
+def is_broken(result: dict) -> bool:
+    score = result.get("score")
+    return score is None or not math.isfinite(score) or result.get("parsed") is False
+
+
+def score_batch(model: RewardModel, batch: list) -> tuple[list[dict], int]:
+    """The model's results for a batch, with every broken result scored again alone; and how many were."""
+    results = model.score(batch)
+    retried = 0
+    if len(batch) > 1:
+        for position, result in enumerate(results):
+            if is_broken(result):
+                retried += 1
+                again = model.score([batch[position]])[0]
+                if not is_broken(again):
+                    results[position] = again
+    for result in results:
+        if result.get("score") is not None and not math.isfinite(result["score"]):
+            result["score"] = None
+    return results, retried
 
 
 def sample_order(sample_id: str) -> str:
@@ -124,7 +150,7 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
 
     out = BASELINES_DIR / f"{model.name}{f'.part-{shard[0]}-of-{shard[1]}' if shard else ''}.jsonl"
     batches = [todo[start:start + model.batch_size] for start in range(0, len(todo), model.batch_size)]
-    started, scored, failed = time.monotonic(), 0, 0
+    started, scored, failed, unparsed, retried = time.monotonic(), 0, 0, 0, 0
     last_print = started
     deadline = started + max_hours * 3600 if max_hours is not None else None
 
@@ -141,18 +167,23 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
             if index + 2 < len(batches):
                 pending.append(pool.submit(decode, batches[index + 2]))
             pending[index] = None
-            results = model.score(batch)
+            results, batch_retried = score_batch(model, batch)
+            retried += batch_retried
             append_jsonl(out, ({"image_id": item.image_id, **result} for (item, _, _), result in zip(batch, results)))
             scored += len(batch)
             failed += sum(result.get("score") is None for result in results)
+            unparsed += sum(result.get("parsed") is False for result in results)
             if index < 3 or time.monotonic() - last_print >= PROGRESS_SECONDS or index + 1 == len(batches):
                 last_print = time.monotonic()
                 rate = scored / max(last_print - started, 1e-9)
                 print(f"{model.name}: {scored}/{len(todo)} edits ({100 * scored // len(todo)}%), "
-                      f"{1 / rate:.2f} s/edit, about {(len(todo) - scored) / rate / 3600:.1f} h left", flush=True)
+                      f"{1 / rate:.2f} s/edit, about {(len(todo) - scored) / rate / 3600:.1f} h left; "
+                      f"retried alone {retried}, no score {failed}, unparsed {unparsed}", flush=True)
     seconds = time.monotonic() - started
     meta_path = BASELINES_DIR / f"{model.name}.meta.json"
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"edits_scored": 0, "seconds": 0.0}
+    for key, count in (("retried_alone", retried), ("without_score", failed), ("unparsed", unparsed)):
+        meta[key] = meta.get(key, 0) + count
     meta.update(model=model.name, model_id=model.model_id, split=split, text=text_kind, device=device,
                 batch_size=model.batch_size, **gpu_info(), edits_scored=meta["edits_scored"] + scored,
                 seconds=round(meta["seconds"] + seconds, 1), load_seconds=round(load_seconds, 1),
@@ -160,5 +191,6 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
     meta["seconds_per_edit"] = round(meta["seconds"] / meta["edits_scored"], 4) if meta["edits_scored"] else None
     write_json(meta_path, meta)
     left = len(items) - len(scored_ids(model.name) & {item.image_id for item in items})
-    return {**summary, "scored": scored, "without_score": failed, "left": left, "complete": left == 0,
+    return {**summary, "scored": scored, "without_score": failed, "unparsed": unparsed, "retried_alone": retried,
+            "left": left, "complete": left == 0,
             "seconds_per_edit": round(seconds / scored, 4) if scored else None}

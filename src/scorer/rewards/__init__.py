@@ -7,9 +7,11 @@ libraries pin conflicting versions), sharing one time budget, and prints their o
 """
 
 import importlib
+import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from ...common.envs import ensure_env
 from ...common.gpus import log_progress, log_tail
@@ -67,7 +69,8 @@ def run_all(models: list[str], split: str = "test", text_kind: str = "instructio
             print(log_tail(env_log, 25), flush=True)
             exit_codes[name] = "environment failed"
             continue
-        log_progress(f"start {name} ({hours_left:.2f} h left)")
+        free = shutil.disk_usage("/tmp" if Path("/tmp").exists() else REPO_ROOT).free / 1e9
+        log_progress(f"start {name} ({hours_left:.2f} h left, {free:.0f} GB free on disk)")
         command = [python, "-u", "-m", "src.scorer", "reward", "--model", name, "--split", split, "--text", text_kind,
                    "--max-hours", f"{hours_left:.3f}"] + (["--limit", str(limit)] if limit else [])
         exit_codes[name] = stream(command)

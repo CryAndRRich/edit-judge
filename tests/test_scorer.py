@@ -19,7 +19,8 @@ from src.scorer.embed import embed, load_embeddings, save_embeddings, square_ima
 from src.scorer.evaluate import baselines, human_agreement, pair_metrics, paired_difference
 from src.scorer.heads import pair_loss
 from src.scorer.report import report
-from src.scorer.rewards.base import RewardModel, edit_items, run as run_reward, scored_ids
+from src.common.io import iter_jsonl
+from src.scorer.rewards.base import RewardModel, edit_items, run as run_reward, score_files, scored_ids
 from src.scorer.train import edit_features, train_run
 
 DIM = 16
@@ -54,6 +55,18 @@ class QualityReward(RewardModel):
     def score(self, batch):
         assert all(original.mode == "RGB" and edit.mode == "RGB" for _, original, edit in batch)
         return [{"score": self.quality[item.image_id]} for item, _, _ in batch]
+
+
+class BatchBrokenReward(QualityReward):
+    """Breaks in a batch the way float16 can (NaN, unparsed answer), but not alone."""
+    name = "broken"
+
+    def score(self, batch):
+        results = super().score(batch)
+        if len(batch) > 1:
+            results[0] = {"score": float("nan")}
+            results[-1] = {"score": 5.0, "parsed": False}
+        return results
 
 
 class ScorerTests(unittest.TestCase):
@@ -205,6 +218,13 @@ class ScorerTests(unittest.TestCase):
         self.assertTrue(run_reward(model, device="cpu")["complete"])          # nothing left
         self.assertEqual(evaluate_module.baseline_scores()["quality"], {item.image_id: self.quality[item.image_id]
                                                                         for item in items})
+
+    def test_broken_results_are_scored_again_alone(self):
+        model = BatchBrokenReward(self.quality)
+        result = run_reward(model, device="cpu", limit=6)
+        self.assertEqual((result["scored"], result["retried_alone"], result["without_score"]), (6, 4, 0))
+        rows = {row["image_id"]: row["score"] for path in score_files("broken") for row in iter_jsonl(path)}
+        self.assertEqual(rows, {image_id: self.quality[image_id] for image_id in rows})
 
 
 if __name__ == "__main__":

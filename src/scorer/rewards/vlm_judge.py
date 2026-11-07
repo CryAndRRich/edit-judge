@@ -15,8 +15,9 @@ parser are imported, not copied). Changes for speed and repeatability on 2 x T4,
 - greedy decoding instead of sampling at temperature 0.7 (num_pass 1, as upstream's default), so runs repeat;
 - the SC and PQ prompts of a batch of edits in one batched `generate` call (upstream: one call per prompt);
 - images limited to MAX_PIXELS (512 x 512, the input size of EditScore's own RL setup), about 330 visual tokens;
-- an answer that cannot be parsed scores the middle of the scale (as upstream's batch_evaluate) and is marked
-  "parsed": false, instead of upstream's retry with sampling and random guess.
+- an answer that cannot be parsed in a batch is generated again alone (the runner, base.py: float16 batches with
+  padding can give "!!!!"); if it still cannot be parsed it scores the middle of the scale (as upstream's
+  batch_evaluate) and is marked "parsed": false, instead of upstream's retry with sampling and random guess.
 """
 
 import math

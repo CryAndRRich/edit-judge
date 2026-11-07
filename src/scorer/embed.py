@@ -138,6 +138,7 @@ def embed(backbone_names: list[str] | None = None, version: str = "all", limit: 
         return {**summary, "embedded": []}
     check_heavy_run(device, len(refs) if todo else len(samples), allow_cpu)
     backbones = {name: get_backbone(name) for name in sorted(set(todo) | set(text_todo))}
+    print(f"loading {', '.join(backbones)} (weights downloaded on first use)", flush=True)
     started = time.monotonic()
     for name, backbone in backbones.items():
         backbone.load(device)
