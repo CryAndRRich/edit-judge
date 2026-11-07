@@ -1,6 +1,6 @@
 """Sensitive-content detectors (nudity, sexual content). Each scores P(NSFW) for an image.
 
-The six models of the team's NSFW benchmark (docs/filters-benchmark.md) and the CLIP zero-shot baseline, as
+The six models of the team's NSFW benchmark (../docs/filters-benchmark.md) and the CLIP zero-shot baseline, as
 name -> "module:Class". `nemo` is LAION's CLIP-based NSFW detector (used to filter LAION-5B) in NeMo Curator, and
 `opennsfw2` is the detector RealEdit (CVPR 2025) used.
 """

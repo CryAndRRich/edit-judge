@@ -1,0 +1,27 @@
+# Extra packages of the scorer's reward-model baselines (src/scorer/rewards), beyond requirements-ml.txt. Kaggle
+# only. They pin conflicting versions, so they are not installed together: `python -m src.scorer rewards` builds
+# one environment per model (its `install` tuple, src/common/envs.py) right before the model runs. This file is the
+# record. The embeddings (src/scorer/embed.py) need only requirements-ml.txt (transformers, open_clip_torch).
+-r requirements-ml.txt
+# imagereward: THUDM/ImageReward at a pinned commit (brings BLIP code, fairscale, timm, CLIP)
+git+https://github.com/THUDM/ImageReward.git@78f8051059b34fef8e0032ccb40561c23a2ddbbb
+# editreward: TIGER-AI-Lab/EditReward at a pinned commit (installed without its training dependencies)
+git+https://github.com/TIGER-AI-Lab/EditReward.git@77a93aaa461fe9187e0ff841b59ecc0d0620bb7f
+transformers==4.57.0                      # editreward (as its pyproject.toml pins)
+trl==0.8.6                                # editreward (imported by its model module)
+peft
+fire
+omegaconf
+megfile
+qwen-vl-utils
+matplotlib
+tensorboard
+datasets
+pandas
+einops
+opencv-python-headless
+# qwen-judge, editscore: VectorSpaceLab/EditScore at a pinned commit (prompts, chat template, output parser)
+git+https://github.com/VectorSpaceLab/EditScore.git@4609c5d2ebb62fdebf665d3c924686d896ef1f74
+transformers>=4.56,<5                     # qwen-judge, editscore (Qwen2.5-VL)
+json-repair
+regex

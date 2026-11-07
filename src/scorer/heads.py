@@ -13,7 +13,7 @@ At inference the score is s (or mu): one forward pass per edit, comparable acros
 import math
 
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as functional
 from torch import nn
 
 LOSSES = ("bt", "soft", "uncertainty")
@@ -21,29 +21,36 @@ HEADS = ("linear", "mlp")
 
 
 class ScoreHead(nn.Module):
-    def __init__(self, n_in: int, head: str = "mlp", hidden: int = 256, dropout: float = 0.2,
-                 uncertainty: bool = False):
+    """Linear: dropout on the inputs, then one linear layer. MLP: dropout on the inputs, one hidden layer (GELU,
+    dropout). Input dropout is the main guard against overfitting: there are thousands of input features for
+    about 20,000 training pairs."""
+
+    def __init__(self, n_inputs: int, head: str = "mlp", hidden: int = 64, dropout: float = 0.3,
+                 input_dropout: float = 0.1, uncertainty: bool = False):
         super().__init__()
         if head not in HEADS:
             raise ValueError(f"unknown head {head!r}; expected one of {HEADS}")
-        out = 2 if uncertainty else 1
+        outputs = 2 if uncertainty else 1
         self.uncertainty = uncertainty
-        self.net = (nn.Linear(n_in, out) if head == "linear" else
-                    nn.Sequential(nn.Dropout(dropout / 2), nn.Linear(n_in, hidden), nn.GELU(), nn.Dropout(dropout),
-                                  nn.Linear(hidden, out)))
+        layers = [nn.Dropout(input_dropout)]
+        if head == "linear":
+            layers.append(nn.Linear(n_inputs, outputs))
+        else:
+            layers += [nn.Linear(n_inputs, hidden), nn.GELU(), nn.Dropout(dropout), nn.Linear(hidden, outputs)]
+        self.net = nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Score (mean) and log variance (None without uncertainty) of each row."""
-        y = self.net(x)
-        return y[:, 0], (y[:, 1] if self.uncertainty else None)
+        output = self.net(features)
+        return output[:, 0], (output[:, 1] if self.uncertainty else None)
 
 
 def pair_loss(mu_a, mu_b, logvar_a, logvar_b, target: torch.Tensor, loss: str) -> torch.Tensor:
     """Mean cross-entropy between P(A > B) and the target probability."""
     if loss in ("bt", "soft"):
-        return F.binary_cross_entropy_with_logits(mu_a - mu_b, target)
+        return functional.binary_cross_entropy_with_logits(mu_a - mu_b, target)
     if loss == "uncertainty":
-        z = (mu_a - mu_b) / torch.sqrt(logvar_a.exp() + logvar_b.exp() + 1e-6)
-        p = (0.5 * (1 + torch.erf(z / math.sqrt(2)))).clamp(1e-6, 1 - 1e-6)
-        return F.binary_cross_entropy(p, target)
+        standardised = (mu_a - mu_b) / torch.sqrt(logvar_a.exp() + logvar_b.exp() + 1e-6)
+        probability = (0.5 * (1 + torch.erf(standardised / math.sqrt(2)))).clamp(1e-6, 1 - 1e-6)
+        return functional.binary_cross_entropy(probability, target)
     raise ValueError(f"unknown loss {loss!r}; expected one of {LOSSES}")

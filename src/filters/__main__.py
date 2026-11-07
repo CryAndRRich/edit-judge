@@ -9,7 +9,7 @@
                                                                  many models / shards over all GPUs (parallel.py)
     python -m src.filters vote --task nsfw [--models a,b] [--method mean] [--threshold 0.7] [--config ...]
                                                                  combined score and flag per dataset image
-    python -m src.filters evaluate --task nsfw [--on dataset|benchmark] [--models a,b] [--config ...]
+    python -m src.filters evaluate --task nsfw --on benchmark [--models a,b] [--config ...]
                                                                  models and voting (every subset) vs labels,
                                                                  also as evaluation.md (tables for the report)
 

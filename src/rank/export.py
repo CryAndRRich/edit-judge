@@ -9,12 +9,16 @@ Reads the final rankings of every version (work/ranking/<version>/final/, from `
     images/<sample id>/original.jpg, 01.jpg, 02.jpg, ...      the file of image_id "<sample id>/<key>"
     pairs.jsonl                                              one line per pair of edits of a sample
 
-    {"a": "00039bc7754c/01", "b": "00039bc7754c/02", "p": 0.6437, "request": "Can someone fix the exposure of this?"}
+    {"a": "00039bc7754c/01", "b": "00039bc7754c/02", "p": 0.6437, "request": "Can someone fix the exposure of this?",
+     "instruction": "Brighten the photo.", "categories": ["Enhance Media"]}
 
 - a, b: image_ids of two edits of the same sample; the original is "<sample id>/original".
 - p: probability that a is better than b (the soft label of `finalize`), always at least 0.5, so a is the preferred
   edit (the hard label). Lines are sorted by sample ID, then by the final ranking.
 - request: the edit request as written.
+- instruction, categories: the simplified instruction and the edit categories of the request (RealEdit's
+  instruction where it published one, otherwise the VLM's; categories from the VLM), from
+  work/instructions/<client>/final.jsonl (`python -m src.instructions complete`); left out when not there yet.
 
 Filters (PROJECT.md Step 1b and 1d): a flagged edit loses every pair it is in; a sample is dropped when its
 original is flagged, or when fewer than 2 edits are left.
@@ -32,10 +36,20 @@ from collections import defaultdict
 from pathlib import Path
 
 from ..common.io import iter_jsonl
-from ..paths import FILTERS_DIR, FINAL_PAIRS, RANKING_DIR, SAMPLES_DIR, SAMPLES_JSONL, UNRANKED_DIR, WORK_DIR
+from ..paths import (FILTERS_DIR, FINAL_PAIRS, INSTRUCTIONS_DIR, RANKING_DIR, SAMPLES_DIR, SAMPLES_JSONL,
+                     UNRANKED_DIR, WORK_DIR)
 
 FILTERED_DIR = WORK_DIR / "filtered"
 TASKS = ("nsfw", "watermark")
+INSTRUCTIONS = INSTRUCTIONS_DIR / "qwen2.5-vl-7b" / "final.jsonl"     # src/instructions/complete.py
+
+
+def request_analysis() -> dict[str, dict]:
+    """Sample ID -> {"instruction", "categories"}, from the request analysis when it exists."""
+    if not INSTRUCTIONS.exists():
+        return {}
+    return {row["id"]: {"instruction": row["instruction"], "categories": row["categories"]}
+            for row in iter_jsonl(INSTRUCTIONS)}
 
 
 def flagged_images() -> dict[str, set[str]]:
@@ -72,6 +86,7 @@ def ranked_samples() -> tuple[list[tuple[dict, list[str], dict]], dict]:
 def final_lines(flagged: set[str]) -> tuple[list[dict], dict[str, set[str]], dict]:
     """Pair lines of the kept samples, the keys each ranked sample keeps in data/, and filter counts."""
     samples, per_version = ranked_samples()
+    analysis = request_analysis()
     lines, keep, counts = [], {}, defaultdict(int)
     for sample, order, prob in samples:
         sample_id = sample["id"]
@@ -90,8 +105,9 @@ def final_lines(flagged: set[str]) -> tuple[list[dict], dict[str, set[str]], dic
             for second in edits[position + 1:]:
                 better, worse = (first, second) if prob[(first, second)] >= 0.5 else (second, first)
                 lines.append({"a": f"{sample_id}/{better}", "b": f"{sample_id}/{worse}", "p": prob[(better, worse)],
-                              "request": sample["request"]})
+                              "request": sample["request"], **analysis.get(sample_id, {})})
     counts["samples"] = sum(bool(key) for key in keep.values())
+    counts["with_instruction"] = sum(1 for sample_id, wanted in keep.items() if wanted and sample_id in analysis)
     return lines, keep, {"ranked_by_version": per_version, **counts}
 
 

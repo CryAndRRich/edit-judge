@@ -1,7 +1,7 @@
 """Compare detectors and voting methods with labels, on quality and speed.
 
-Labels: on the dataset, hand labels in work/labels/<task>.jsonl ({"image_id", "label"}, 1 = positive); on a public
-benchmark, its labels (benchmark.py). For every model and every voting method this reports, at the configured
+Labels: those of the public benchmark sets (benchmark.py); the dataset has no labels (hand labels were dropped
+on 2026-11-06), so its decisions come from the benchmark's choice (configs/filters.toml). For every model and every voting method this reports, at the configured
 threshold, accuracy, precision, recall, F1, the false positive rate and the confusion counts; ROC-AUC and average
 precision over all thresholds; the best F1 over thresholds (optimistic: chosen on the same labels); results per
 benchmark set and the share of images flagged per class; and the time per image (models only).
@@ -15,8 +15,7 @@ import itertools
 import json
 from collections import defaultdict
 
-from ..common.io import iter_jsonl, write_json
-from ..paths import LABELS_DIR
+from ..common.io import write_json
 from .base import scored_models, set_dir
 from .voting import METHODS, combine, load_scores
 
@@ -135,16 +134,13 @@ def subset_votes(scores: dict[str, dict[str, float]], labels: dict[str, int], cf
 
 
 def evaluate(task: str, cfg: dict, on: str = "dataset", models: list[str] | None = None) -> dict:
-    """On the dataset: the models of the config. On a benchmark: every model with scores there. `models`
-    overrides both."""
+    """Every model with scores on the benchmark (or `models`). Only the benchmark has labels."""
+    if on != "benchmark":
+        raise SystemExit("only the benchmark has labels: use --on benchmark")
+    from .benchmark import read_labels
     folder = set_dir(task, on)
-    if on == "benchmark":
-        from .benchmark import read_labels
-        labels = read_labels(task)
-        models = models or scored_models(task, on)
-    else:
-        labels = {row["image_id"]: int(row["label"]) for row in iter_jsonl(LABELS_DIR / f"{task}.jsonl")}
-        models = models or cfg.get("models", [])
+    labels = read_labels(task)
+    models = models or scored_models(task, on)
     if not labels:
         raise SystemExit(f"no labels for {task} on the {on}")
     thresholds, weights = cfg.get("thresholds", {}), cfg.get("weights", {})

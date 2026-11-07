@@ -1,71 +1,67 @@
-# Scorer pilot (python -m src.scorer train|report): heads trained on cached embeddings of frozen backbones.
-# See docs/scorer-survey.md for the design. Every run needs the embeddings of its backbones
-# (python -m src.scorer embed --backbone NAME).
-#   backbones: clip-l14 | pickscore | siglip | dinov2 (src/scorer/backbones/__init__.py)
+# Scorer (python -m src.scorer embed | baselines | train | report). Design and results: ../docs/scorer.md.
+#   backbones: clip-l14 | pickscore | siglip | hpsv2 | dinov2 (src/scorer/backbones/__init__.py)
 #   inputs:    "vec" (e, e - o, e * t) and/or "sim" (cosine similarities, |e - o|)
 #   head:      linear | mlp
-#   loss:      bt (hard labels) | soft (p_a of the final ranking) | uncertainty (HPSv3-style Gaussian scores)
+#   loss:      bt (hard labels) | soft (p of the final ranking) | uncertainty (HPSv3-style Gaussian scores)
+#   text:      instruction (simplified instruction; the request when a sample has none) | request (as written)
 
 version = "all"         # all (data/pairs.jsonl), or v1 / v2 (needs work/ranking: coordinator only)
 
-[train]                 # defaults for every run; a run may override any of them
-hidden = 256
-dropout = 0.2
-lr = 1e-3
-weight_decay = 1e-2
-batch_size = 256
-epochs = 100
-patience = 10
-seed = 2026
+[embed]
+backbones = ["clip-l14", "pickscore", "siglip", "hpsv2", "dinov2"]
 
-# 1. Feature-based Bradley-Terry: logistic regression on similarity features (the T-061 plan, from embeddings)
+[train]                 # defaults for every run; a run may override any of them
+text = "instruction"
+hidden = 64
+dropout = 0.3
+input_dropout = 0.1
+lr = 1e-4
+weight_decay = 0.05
+batch_size = 256
+epochs = 200
+patience = 8            # epochs without a lower dev loss
+seeds = [0, 1, 2, 3, 4] # one head per seed; a run's score is their mean (standardised)
+
+# 1. Linear heads: on the similarities of every backbone (the most readable), and on SigLIP's vectors
 [[runs]]
 name = "linear-sim-all"
-backbones = ["clip-l14", "pickscore", "siglip", "dinov2"]
+backbones = ["clip-l14", "pickscore", "siglip", "hpsv2", "dinov2"]
 inputs = ["sim"]
 head = "linear"
 loss = "soft"
 
-# 2. Small MLP head on one backbone; soft vs hard labels
 [[runs]]
-name = "mlp-clip-soft"
-backbones = ["clip-l14"]
+name = "linear-vec-siglip"
+backbones = ["siglip"]
 inputs = ["vec", "sim"]
+head = "linear"
+loss = "soft"
+weight_decay = 0.5
+
+# 2. MLP on SigLIP (the pilot's best): soft vs hard labels, instruction vs request
+[[runs]]
+name = "mlp-siglip"
+backbones = ["siglip"]
 loss = "soft"
 
 [[runs]]
-name = "mlp-clip-bt"
-backbones = ["clip-l14"]
-inputs = ["vec", "sim"]
+name = "mlp-siglip-bt"
+backbones = ["siglip"]
 loss = "bt"
 
 [[runs]]
-name = "mlp-pickscore-soft"
-backbones = ["pickscore"]
-inputs = ["vec", "sim"]
-loss = "soft"
-
-[[runs]]
-name = "mlp-siglip-soft"
+name = "mlp-siglip-request"
 backbones = ["siglip"]
-inputs = ["vec", "sim"]
 loss = "soft"
+text = "request"
 
-# 3. Alignment (SigLIP) + preservation (DINOv2), and all backbones; soft vs uncertainty loss
+# 3. MLP on every backbone: Bradley-Terry vs uncertainty loss
 [[runs]]
-name = "mlp-siglip-dino-soft"
-backbones = ["siglip", "dinov2"]
-inputs = ["vec", "sim"]
-loss = "soft"
-
-[[runs]]
-name = "mlp-all-soft"
-backbones = ["clip-l14", "pickscore", "siglip", "dinov2"]
-inputs = ["vec", "sim"]
+name = "mlp-all"
+backbones = ["clip-l14", "pickscore", "siglip", "hpsv2", "dinov2"]
 loss = "soft"
 
 [[runs]]
 name = "mlp-all-uncertainty"
-backbones = ["clip-l14", "pickscore", "siglip", "dinov2"]
-inputs = ["vec", "sim"]
+backbones = ["clip-l14", "pickscore", "siglip", "hpsv2", "dinov2"]
 loss = "uncertainty"

@@ -25,18 +25,29 @@ class ImageRef:
 
 
 def iter_samples() -> Iterator[dict]:
-    """Samples as {"id", "request", "original", "edits": [{"image"}], "pairs": [(key a, key b, p)]}, edits in key
-    order (never in ranked order, so no stage sees the ranking by accident)."""
+    """Samples as {"id", "request", "instruction", "original", "edits": [{"image"}], "pairs": [(key a, key b, p)]},
+    edits in key order (never in ranked order, so no stage sees the ranking by accident). `instruction` is the
+    simplified instruction of the request (RealEdit's or the VLM's), None when the dataset has none."""
     samples = {}
-    for p in iter_jsonl(FINAL_PAIRS):
-        sid, a = p["a"].split("/")
-        b = p["b"].split("/")[1]
-        s = samples.setdefault(sid, {"id": sid, "request": p["request"], "keys": set(), "pairs": []})
-        s["keys"].update((a, b))
-        s["pairs"].append((a, b, p["p"]))
-    for s in samples.values():
-        keys = sorted(s.pop("keys"))
-        yield {**s, "original": "original.jpg", "edits": [{"image": f"{k}.jpg"} for k in keys]}
+    for pair in iter_jsonl(FINAL_PAIRS):
+        sample_id, first = pair["a"].split("/")
+        second = pair["b"].split("/")[1]
+        sample = samples.setdefault(sample_id, {"id": sample_id, "request": pair["request"],
+                                                "instruction": pair.get("instruction"), "keys": set(), "pairs": []})
+        sample["keys"].update((first, second))
+        sample["pairs"].append((first, second, pair["p"]))
+    for sample in samples.values():
+        keys = sorted(sample.pop("keys"))
+        yield {**sample, "original": "original.jpg", "edits": [{"image": f"{key}.jpg"} for key in keys]}
+
+
+def text_of(sample: dict, kind: str = "instruction") -> str:
+    """The text a model reads for a sample: its simplified instruction (falling back to the request when the
+    dataset has none) or the request as written, whitespace collapsed."""
+    if kind not in ("instruction", "request"):
+        raise ValueError(f"unknown text kind {kind!r}; expected instruction or request")
+    text = (sample.get("instruction") if kind == "instruction" else None) or sample["request"]
+    return " ".join(text.split())
 
 
 def images_of(sample: dict) -> list[ImageRef]:

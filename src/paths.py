@@ -37,7 +37,6 @@ RANKING_DIST = RANKING_DIR / "dist"           # zip files handed out to annotato
 RANKING_APP = REPO_ROOT / "apps" / "ranking"  # the standalone app annotators run
 
 # Later stages: results of each task
-LABELS_DIR = WORK_DIR / "labels"              # hand labels for evaluation: labels/<task>.jsonl
 FILTERS_DIR = OUTPUT_DIR / "filters"          # detector scores and decisions: filters/<task>/<model>.jsonl
 INSTRUCTIONS_DIR = OUTPUT_DIR / "instructions"  # LLM/VLM analyses of the requests
 SCORER_DIR = OUTPUT_DIR / "scorer"            # scorer datasets, runs and reports

@@ -1,7 +1,7 @@
 # Image filters: which detectors to combine, and how (python -m src.filters vote|evaluate --task T).
 # `models` are the detectors run on the dataset (work/filters/<task>/<model>.jsonl); the benchmark evaluation
 # (--on benchmark) uses every model scored there. Choice of 2026-11-06 from the benchmark on 3 community sets per
-# task (docs/filters-benchmark.md): in our data positives are rare, so the false positive rate decides.
+# task (../docs/filters-benchmark.md): in our data positives are rare, so the false positive rate decides.
 #   method:     mean | weighted | max | majority (several models)
 #   thresholds: per model, used by "majority", by the per-model report, and by a single model (default 0.5)
 #   weights:    per model, used by "weighted" (default 1)
@@ -17,10 +17,12 @@ thresholds = {}
 weights = {}
 
 [watermark]
-# ConvNeXt alone at 0.5: precision 0.968, false positive rate 1.5%; it misses most small photographers' marks
-# (recall 0.11 on the scenery set). OCR is left out: our edits often contain wanted text (memes, captions).
+# ConvNeXt alone: precision 0.968, false positive rate 1.5% at 0.5 on the benchmark; it misses most small
+# photographers' marks (recall 0.11 on the scenery set). OCR is left out: our edits often contain wanted text.
+# Raised to 0.7 on 2026-11-07: on the dataset 0.5 flagged 11.9% of the images, most of those below 0.7 without a
+# visible mark.
 models = ["convnext"]
 method = "majority"
-threshold = 0.5
-thresholds = {convnext = 0.5}
+threshold = 0.7
+thresholds = {convnext = 0.7}
 weights = {}

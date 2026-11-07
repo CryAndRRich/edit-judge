@@ -86,7 +86,7 @@ class FilterTests(unittest.TestCase):
                 det = get_detector(task, name)
                 self.assertEqual((det.task, det.name), (task, name))
                 self.assertIsInstance(det.install, tuple)
-        from src.filters.envs import env_name
+        from src.common.envs import env_name
         nemo = get_detector("nsfw", "nemo")
         self.assertTrue(nemo.isolated)                       # its own torch: not on top of the machine's packages
         self.assertNotEqual(env_name(nemo.install, True), env_name(nemo.install, False))
@@ -148,16 +148,20 @@ class FilterTests(unittest.TestCase):
         calls = []
 
         class FakeProc:
+            """Runs for one poll, so both GPU workers get a job before the queue empties."""
             def __init__(self, cmd, cwd=None, env=None, stdout=None, stderr=None, text=None):
                 calls.append((cmd, env["CUDA_VISIBLE_DEVICES"]))
                 stdout.write("loaded\n")
                 stdout.flush()
-                self.returncode = 0
+                self.returncode, self.polls = 0, 0
 
             def poll(self):
-                return 0
+                self.polls += 1
+                return None if self.polls == 1 else 0
 
+        real_sleep = parallel.time.sleep
         with mock.patch.object(parallel.subprocess, "Popen", FakeProc), \
+                mock.patch.object(parallel.time, "sleep", lambda seconds: real_sleep(0.05)), \
                 mock.patch.object(parallel, "ensure_env", lambda install, log=None, isolated=False: sys.executable):
             out = parallel.multirun("watermark", "dataset", ["convnext", "laion"], gpus=2)
             self.assertEqual(sorted(out["jobs"]), ["watermark-convnext-0", "watermark-convnext-1",

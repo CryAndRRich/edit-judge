@@ -10,9 +10,9 @@ The work is split into stages (the plan follows the course project proposal):
 | Stage | Folder | Status |
 |---|---|---|
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 and v2 ranked, final dataset exported) |
-| 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 6 NSFW and 3 watermark detectors benchmarked on public sets (`docs/filters-benchmark.md`); not yet run on the dataset |
-| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Tested on Kaggle (100 requests, 3B and 7B) |
-| 3. Features and the learned scorer | `src/scorer` | Architecture proposed (`docs/scorer-survey.md`); pilot on v1: 60.4% test pair accuracy vs 50.6% for CLIP-score |
+| 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
+| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Qwen2.5-VL-7B on the whole dataset, running on Kaggle (`instructions_complete.ipynb`) |
+| 3. The learned scorer and its baselines | `src/scorer` | Pilot on v1: 60.4% test pair accuracy vs 50.6% for CLIP-score; fixed design and 8 baselines ready for Kaggle (`../docs/scorer.md`) |
 | 4. Editing models per operation, and their benchmark | (no code yet) | Planned |
 | 5. The editing assistant | (no code yet) | Planned |
 
@@ -21,27 +21,32 @@ The work is split into stages (the plan follows the course project proposal):
 ```
 src/                        Python package (run as `python -m src.<module>`)
   paths.py                  every data location, in one place (EJ_DATA_DIR / EJ_WORK_DIR / EJ_OUTPUT_DIR override it)
-  common/                   shared helpers: JSONL files, dataset images, device and the no-GPU guard, .env
+  common/                   shared helpers: JSONL files, dataset images and texts, device and the no-GPU guard,
+                            per-model Python environments (envs.py), runs over all GPUs (gpus.py), .env
   crawl/                    crawler framework: polite HTTP, SQLite state, one module per source
   process/                  dataset build (adapters, filter, writer), streaming collection, image normalization
   rank/                     ranking chunks and assignments, result checking, final rankings, export of data/
   filters/                  detector interface and runner, public benchmark sets, voting, evaluation
-    nsfw/                   sensitive-content detectors, one file each (6)
-    watermark/              watermark detectors, one file each (3), and the safe checkpoint loader
+    nsfw/                   sensitive-content detectors, one file each
+    watermark/              watermark detectors, one file each, and the safe checkpoint loader
   instructions/             request analysis (RealEdit): label sets, prompts/ (versioned), clients/ (VLMs), runner
-  scorer/                   preference pairs and splits (data.py), backbones, embeddings, heads, training, evaluation
+  scorer/                   preference pairs and splits, encoders and embeddings, heads, training, evaluation, report
+    rewards/                reward models and VLM judges used as baselines (ImageReward, EditReward, EditScore, ...)
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
 configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
-docs/                       design notes, surveys and results, e.g. scorer-survey.md, filters-benchmark.md
-notebooks/                  Kaggle notebooks; kaggle_template.ipynb to start from
+notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*
 tests/                      unit tests on a tiny synthetic dataset (never on data/)
 data/                       local only, git-ignored: the final dataset (images/, pairs.jsonl); see "Data"
 work/                       local only, git-ignored: everything used to build data/, and stage outputs
 requirements.txt            dependencies of stage 1
 requirements-ml.txt         model libraries for the later stages
 requirements-filters.txt    extra packages of the image filter detectors (installed one model at a time on Kaggle)
+requirements-scorer.txt     extra packages of the scorer's reward-model baselines (one environment per model)
 .env.example                settings and secrets; copy to .env (git-ignored)
 ```
+
+Design notes, surveys and results are not in this repository: they live in the project's `docs/` folder next to
+it (`../docs/`: `PROJECT.md`, `filters-benchmark.md`, `scorer.md`, ...).
 
 ## Setup
 
@@ -67,12 +72,19 @@ GPU, never on a laptop. Without a GPU, model runners refuse more than 20 items (
 with `--allow-cpu` only for an approved run).
 
 - The data goes to Kaggle as a **private** dataset shared only with the team (it contains photos of real people):
-  `python -m src.process pack` writes `work/exports/editjudge-data.zip` (9.1 GB: `data/` as it is, `images/` and
+  `python -m src.process pack` writes `work/exports/editjudge-data.zip` (7.6 GB: `data/` as it is, `images/` and
   `pairs.jsonl`). Upload it as a new version of the private dataset `cryandrrich/editjudge`; the notebooks find
   the folder that holds `pairs.jsonl` among their inputs.
-- Start from `notebooks/kaggle_template.ipynb`: it clones the code from GitHub (the branch you set, so push first),
-  sets `EJ_DATA_DIR` to the read-only input and `EJ_OUTPUT_DIR` to `/kaggle/working/out`, so the code runs unchanged
-  and every result lands in one output folder. Turn on the GPU and internet in the notebook settings.
+- Every notebook clones the code from GitHub (branch `curr`, so push first), sets `EJ_DATA_DIR` to the read-only
+  input and `EJ_OUTPUT_DIR` to `/kaggle/working/out`, so the code runs unchanged and every result lands in one
+  output folder. Settings: GPU T4 x2, internet on. Long runs stop by themselves after `HOURS` and go on in the
+  next session when the notebook's previous output is added as input.
+- The notebooks:
+  - `filters_nsfw_benchmark`, `filters_watermark_benchmark`: every detector on the public benchmark sets;
+  - `filters_apply`: the chosen detectors on the dataset, decisions for `python -m src.rank export`;
+  - `instructions_complete`: the simplified instruction and categories of every request (Qwen2.5-VL-7B);
+  - `scorer_train`: embeddings, similarity baselines, trained heads and the report;
+  - `scorer_baselines`: reward-model and VLM-judge baselines on the test split.
 - Bring the results back into `work/` (same sub-folders) and record the run (model, version, time) in the pull
   request. Do not commit outputs.
 
@@ -109,7 +121,7 @@ data/
 - `a`, `b`: image_ids of two edits of the same sample; the original is "<sample id>/original".
 - `p`: probability that `a` is better than `b` (soft label), always at least 0.5, so `a` is the preferred edit (hard
   label). Lines are sorted by sample ID, then by the final ranking; the rank of an edit within its sample is the
-  number of pairs it wins (116 of 36,198 pairs, all between non-adjacent edits, disagree with the full ranking).
+  number of pairs it wins (25 of 29,584 pairs disagree with the full ranking).
 - `request`: the edit request as written (title and first post for forum threads), not translated or cleaned.
 
 **`work/` holds everything else:**
@@ -124,9 +136,8 @@ work/
   index/ledger.jsonl                every build decision (kept or rejected, and why)
   index/image_cache.json            image header and hash cache of the build
   ranking/v1/, v2/                  ranking versions: manifest, assignments, results, labels, final rankings
-  ranking/dist/                     zip files handed out to annotators, and collected result zips
-  labels/<task>.jsonl               hand labels used to evaluate a task (e.g. nsfw, watermark)
-  filters/, instructions/, features/, scorer/, editors/
+  ranking/dist/                     the ranking app zip handed out to annotators (results are in ranking/vN/results)
+  filters/, instructions/, scorer/
                                     results of the later stages, one folder per task (EJ_OUTPUT_DIR)
   models/                           downloaded model weights
   exports/editjudge-data.zip        the data packed for Kaggle (`python -m src.process pack`)
@@ -140,8 +151,10 @@ work/
 - The raw crawl outputs and the username salt were deleted (crawling is closed). Paths stored in the ledger and the
   provenance index (`raw/<source>/...`) are kept only as a record.
 
-**Final dataset (2026-11-06):** 16,110 ranked samples (v1 6,996, v2 9,114), 56,568 images (40,458 edits), 36,198
-pairs, 8.6 GB; packed as `work/exports/editjudge-data.zip` (9.1 GB).
+**Final dataset (2026-11-07, after the image filters):** 13,899 samples, 48,226 images (34,327 edits), 29,584 pairs,
+7.2 GB; packed as `work/exports/editjudge-data.zip` (7.6 GB). Of the 16,110 ranked samples (v1 6,996, v2 9,114), the
+filters (48 NSFW and 5,096 watermark images flagged; `../docs/filters-benchmark.md`) dropped 3,957 edits, 1,185 samples
+with a flagged original and 1,026 samples left with fewer than 2 edits; their 8,342 images are in `work/filtered/`.
 The other 1,645 samples (skipped by a member, or without a stand-in for a missing member) are in `work/unranked/`.
 
 **Built dataset (frozen on 2026-10-07):** 17,755 samples and 44,800 edits (62,555 images). RealEdit 16,422,
@@ -356,7 +369,7 @@ dropped because someone skipped them, 11 dropped as "missing". Raw agreement bet
 Two tasks remove images before training: **sensitive content** (`nsfw`) and **watermarks** (`watermark`). For each
 task several detectors run, first on a public set with known labels, then on the dataset; the evaluation decides
 whether a vote of several models beats the single best model enough to pay for the extra time. Results so far:
-`docs/filters-benchmark.md`. Runs on Kaggle (2 x T4): `notebooks/filters_nsfw_benchmark.ipynb` and
+`../docs/filters-benchmark.md`. Runs on Kaggle (2 x T4): `notebooks/filters_nsfw_benchmark.ipynb` and
 `filters_watermark_benchmark.ipynb` (every model on the public sets: accuracy, precision, recall, F1, latency;
 votes of every subset), then `filters_apply.ipynb` (the chosen models on the dataset).
 
@@ -390,7 +403,8 @@ votes of every subset), then `filters_apply.ipynb` (the chosen models on the dat
   (prithivMLmods/Watermark-or-Not-20K, synthetic marks). Images and labels go to `work/benchmarks/<task>/` (on
   Kaggle in `/tmp`, never in the saved output); results are reported per set and pooled.
 - **Two GPUs** (`parallel.py`, `multirun`): one worker per GPU takes jobs from a queue; every model runs in its own
-  process and its own environment (`envs.py`: a venv per group of conflicting packages, on top of Kaggle's ones).
+  process and its own environment (`src/common/envs.py`: a venv per group of conflicting packages, on top of
+  Kaggle's ones).
   On the benchmark the models run side by side; on the dataset every model is split into one shard per GPU. The
   runner decodes the next batches on CPU threads while the GPU works, and `--latency N` times N images one by one
   (batch 1, after a warm-up).
@@ -398,9 +412,8 @@ votes of every subset), then `filters_apply.ipynb` (the chosen models on the dat
   batch so a run can resume; `<model>.meta.json` records the device and the time per image.
 - **Voting** (`configs/filters.toml`): `mean`, `weighted`, `max` (any model), or `majority` (share of models above
   their own threshold). Scores are combined without running the models again.
-- **Evaluation**: on the benchmark, every scored model and every voting method; on the dataset, the models of the
-  config against hand labels in `work/labels/<task>.jsonl` (`{"image_id", "label"}`: a few hundred images, mostly
-  where the detectors disagree plus a random share). It reports accuracy, precision, recall, F1, the false
+- **Evaluation** (benchmark only; the dataset has no labels): every scored model and every voting method. It
+  reports accuracy, precision, recall, F1, the false
   positive rate and confusion counts at the thresholds, ROC-AUC, average precision, the best F1 over thresholds,
   the share flagged per class (benchmark), and the time per image. Votes are tried over every subset of 2+ models;
   `choice` gives the best single model, the best vote, the F1 gain and the time ratio.
@@ -448,7 +461,8 @@ qwen2.5-vl-7b on 2 x T4 the 16,020 requests left take about 13-14 h: two session
 
 - **Clients** (`clients/`): open VLMs with one interface (`generate_batch`); Qwen2.5-VL 3B and 7B are registered
   (bfloat16 on GPUs that support it, else float16). An answer from a batch that is not JSON (float16 can give
-  "!!!!") is asked again alone. Start from `notebooks/instructions_qwen_vl.ipynb` on Kaggle (`STEP` picks the run).
+  "!!!!") is asked again alone. The 3B/7B comparison on 100 requests used the `run`, `stats` and `agree`
+  commands; the whole dataset runs in `notebooks/instructions_complete.ipynb`.
 - **Long runs:** `--shard I/N` runs every N-th request, so each GPU takes one shard (`<prompt>.part-I-of-N.jsonl`);
   `--max-hours` stops cleanly before Kaggle's 12 h limit, and the next session resumes from the copied results.
   Measured on 2 x T4 (prompt v2): qwen2.5-vl-3b 1.9 s and qwen2.5-vl-7b 3.2 s per request, so all 17,755 requests
@@ -465,34 +479,31 @@ qwen2.5-vl-7b on 2 x T4 the 16,020 requests left take about 13-14 h: two session
 
 ## Scorer (`src.scorer`)
 
-`src/scorer/data.py` loads the preference pairs of the final dataset (`data/pairs.jsonl`, `load_pairs`; `a` is the
-preferred edit, `p_a` the soft label), drops samples whose source forbids training, and assigns every sample to
-train (70%), dev (15%) or test (15%) by a hash of its ID, so the split never changes. The final dataset gives
-36,198 pairs (train 25,341, dev 5,388, test 5,469); v1 alone gave 15,287 (train 10,598, dev 2,239, test 2,450).
-`version = "all"` in `configs/scorer.toml` uses every pair; `v1` or `v2`, the source of a sample (results by
-source) and each annotator's ranking (the human ceiling) come from `work/`, so they work only on the coordinator's
-computer.
-
-The architecture (survey and proposal in `docs/scorer-survey.md`): frozen encoders (CLIP ViT-L/14, PickScore,
-SigLIP, DINOv2) embed the original, the edit and the request once; a small head (linear or MLP) on features of
-these embeddings gives one score per edit, trained on pairs of edits of the same request (Bradley-Terry on the soft
-labels `p_a`, or an HPSv3-style uncertainty loss).
+Design, survey, baselines and results: `../docs/scorer.md`. In short:
+- **Data:** the preference pairs of the final dataset (`data/pairs.jsonl`; `a` is the preferred edit, `p` the soft
+  label), split by a hash of the sample ID: 29,584 pairs (train 20,588, dev 4,477, test 4,519). The text is the
+  simplified instruction of the request (the request as written when there is none; `text` in
+  `configs/scorer.toml`).
+- **Main model:** five frozen encoders (CLIP ViT-L/14, PickScore, SigLIP, HPSv2.1, DINOv2) embed every image and
+  text once; a small head (linear or MLP) on features of these embeddings gives one score per edit, trained on
+  pairs of edits of the same request (Bradley-Terry on the soft labels, or an HPSv3-style uncertainty loss), one
+  head per seed, the epoch with the lowest dev loss. Images are padded to a square (no centre crop).
+- **Baselines** on the test split: CLIP-score, PickScore, SigLIP and HPSv2.1 (cosine of edit and instruction);
+  ImageReward, EditReward-7B, Qwen2.5-VL-7B zero-shot and EditScore-7B (`src/scorer/rewards`, each in its own
+  Python environment, pinned upstream code).
+- **Evaluation:** pairwise accuracy with a 95% bootstrap interval over samples, paired differences between
+  scorers on the same pairs, top-1, the human ceiling; one run selected on dev.
 
 ```bash
-.venv/bin/python -m src.scorer embed --backbone clip-l14   # on Kaggle: cache embeddings of the ranked samples
-.venv/bin/python -m src.scorer baselines                   # CLIP-score and other zero-shot baselines, human ceiling
-.venv/bin/python -m src.scorer train                       # heads of configs/scorer.toml (minutes on a CPU)
-.venv/bin/python -m src.scorer report                      # work/scorer/report.md: one table of everything
+python -m src.scorer embed --gpus 2              # Kaggle: embeddings, every image decoded once, one process per GPU
+python -m src.scorer baselines                   # similarity baselines and the human ceiling
+python -m src.scorer train                       # every run of configs/scorer.toml, 5 seeds each
+python -m src.scorer rewards --max-hours 10      # Kaggle: reward models and VLM judges, resumable
+python -m src.scorer report                      # work/scorer/report.md (small files only: runs on a laptop)
 ```
 
-- **Runs** are listed in `configs/scorer.toml` (backbones, inputs, head, loss); each writes
-  `work/scorer/runs/<name>/` (`metrics.json`, `scores.jsonl` per edit, `head.pt`). Model selection uses dev; test
-  is reported once.
-- **Metrics:** pairwise accuracy with a 95% bootstrap interval over samples, accuracy weighted by |2 p_a - 1| and on
-  confident pairs, top-1 (best edit found), by source. The `edit-key-order` baseline (01 first) measures the
-  position and upvote bias of the labels; it is not a valid scorer.
-- Start from `notebooks/scorer_pilot.ipynb` on Kaggle (`STEP` picks the run). Pilot results (v1, 2026-10-22):
-  60.4% test pair accuracy for an MLP head on SigLIP vs 50.6% for CLIP-score.
+Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.json`, `scores.jsonl`, `head.pt`),
+`baselines/<name>.jsonl` (a score per edit), `report.md`. Notebooks: `scorer_train.ipynb`, `scorer_baselines.ipynb`.
 
 ## Data rules
 

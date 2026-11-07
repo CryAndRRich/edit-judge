@@ -1,6 +1,6 @@
 # Extra packages of the image filter detectors (src/filters), beyond requirements-ml.txt. They run on Kaggle only.
 # Some of them pin conflicting versions (TensorFlow, NeMo Curator), so they are not installed together:
-# notebooks/filters.ipynb installs each detector's packages (`install` in its class, shown by
+# notebooks/filters_*.ipynb install each detector's packages (`install` in its class, shown by
 # `python -m src.filters list`) right before that detector runs in its own process. This file is the record.
 -r requirements-ml.txt
 timm>=0.9.16                              # owen, laion

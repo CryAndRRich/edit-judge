@@ -3,9 +3,9 @@
     python -m src.filters multirun --task nsfw --on benchmark [--models a,b] [--latency 50]
     python -m src.filters multirun --task nsfw --on dataset --models mobilenet,falconsai
 
-- Every detector runs in its own process (`python -m src.filters run ...`), with its own environment (envs.py),
-  on one GPU (CUDA_VISIBLE_DEVICES), so one model never holds memory another one needs, and conflicting libraries
-  never meet. One worker per GPU takes the next job from a queue.
+- Every detector runs in its own process (`python -m src.filters run ...`), with its own environment
+  (src/common/envs.py), on one GPU (CUDA_VISIBLE_DEVICES), so one model never holds memory another one needs, and
+  conflicting libraries never meet. One worker per GPU takes the next job from a queue.
 - On the benchmark (many models, few images) the models run side by side, slow models first. On the dataset (few
   models, 56,568 images) every model is split into one shard per GPU, and its models run one after the other. The
   second shard starts once the first one has loaded the model, so a download happens once.
@@ -14,40 +14,18 @@ ready, when a job starts and ends, and every STATUS_SECONDS the last progress li
 """
 
 import os
-import shutil
 import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, Queue
 
+from ..common.envs import ensure_env
+from ..common.gpus import STATUS_SECONDS, gpu_count, last_line, log_progress
 from ..paths import FILTERS_DIR, REPO_ROOT
 from . import get_detector, registry
-from .envs import ensure_env
 
 SLOW_FIRST = ["nemo", "opennsfw2", "ocr", "yolo", "nudenet", "clip", "laion", "efficientnet"]
-STATUS_SECONDS = 60
-
-
-def log_progress(text: str) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] {text}", flush=True)
-
-
-def last_line(path) -> str:
-    """The last progress or error line of a log (the JSON summary a run prints at the end is skipped)."""
-    try:
-        lines = [line for line in path.read_text(errors="ignore").splitlines()
-                 if line.strip() and not line.startswith((" ", "{", "}"))]
-    except FileNotFoundError:
-        return ""
-    return lines[-1][-160:] if lines else ""
-
-
-def gpu_count() -> int:
-    if not shutil.which("nvidia-smi"):
-        return 0
-    listing = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True).stdout
-    return sum(line.startswith("GPU ") for line in listing.splitlines())
 
 
 def prepare_envs(task: str, models: list[str], logs) -> dict[str, str | Exception]:

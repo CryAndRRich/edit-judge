@@ -1,12 +1,13 @@
-"""One Python environment per group of extra packages, so detectors whose libraries conflict (TensorFlow, NeMo
+"""One Python environment per group of extra packages, so models whose libraries conflict (TensorFlow, NeMo
 Curator, ultralytics, ...) can run side by side on two GPUs without reinstalling over each other.
 
-Detectors with no `install` run with the current Python. Every other `install` tuple gets its own virtual
-environment in EJ_ENVS_DIR (default /tmp/ej-envs), created with `--system-site-packages`: it sees the packages
-already installed (Kaggle's PyTorch, Transformers, ...) and only adds or overrides what the detector needs. An
-`isolated` detector gets an environment without the machine's packages, for libraries that bring their own torch:
-a venv that sees the machine's torchaudio or torchvision next to another torch fails to load them. `uv` makes
-this fast (pip install uv); without it, venv and pip are used.
+Used by the image filters' detectors and the scorer's reward models. A model with no `install` runs with the
+current Python. Every other `install` tuple gets its own virtual environment in EJ_ENVS_DIR (default
+/tmp/ej-envs), created with `--system-site-packages`: it sees the packages already installed (Kaggle's PyTorch,
+Transformers, ...) and only adds or overrides what the model needs. An `isolated` model gets an environment
+without the machine's packages, for libraries that bring their own torch: a venv that sees the machine's
+torchaudio or torchvision next to another torch fails to load them. `uv` makes this fast (pip install uv); without
+it, venv and pip are used.
 """
 
 import hashlib
