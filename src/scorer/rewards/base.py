@@ -14,9 +14,13 @@ on where it stopped:
   parsed) is scored again alone: float16 batches with padding can give a broken output ("!!!!" from a VLM, an
   overflow) that the same input alone does not. A score that is still not finite is written as null.
 <model>.meta.json records the device, the time per edit and the totals.
+
+Latency (../latency.py): right after loading, the runner times `latency_pairs` requests, each the two edits of one
+test pair in one `score` call, the way one user request would be answered (<model>.latency.json, once per model;
+a smoke run with `limit` times SMOKE_LATENCY_PAIRS and a full run times them again).
 """
 
-import hashlib
+import io
 import json
 import math
 import time
@@ -31,10 +35,12 @@ from ...common.dataset import iter_samples, text_of
 from ...common.device import check_heavy_run, pick_device
 from ...common.io import append_jsonl, iter_jsonl, write_json
 from ...paths import SAMPLES_DIR, SCORER_DIR
-from ..data import load_pairs
+from ..data import load_pairs, sample_order
+from ..latency import WARMUP_PAIRS, gpu_peak_gb, latency_pairs, reset_gpu_peak, time_requests, timing_summary
 
 BASELINES_DIR = SCORER_DIR / "baselines"
 PROGRESS_SECONDS = 60            # a progress line after the first 3 batches, then at least once a minute
+SMOKE_LATENCY_PAIRS = 3
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,7 @@ class RewardModel:
     install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each; models with the same `install`
                                     # share one environment (src/common/envs.py)
     isolated: bool = False          # True: an environment that does not see the machine's packages
+    latency_pairs: int = 50         # requests timed for the latency (fewer for slow models)
 
     def load(self, device: str) -> None:
         """Load the model onto `device`. Import heavy libraries here, so listing models needs none of them."""
@@ -84,10 +91,6 @@ def score_batch(model: RewardModel, batch: list) -> tuple[list[dict], int]:
     return results, retried
 
 
-def sample_order(sample_id: str) -> str:
-    return hashlib.sha1(f"order:{sample_id}".encode()).hexdigest()
-
-
 def edit_items(split: str = "test", text_kind: str = "instruction") -> list[EditItem]:
     """Every edit with a preference pair in `split`, in the fixed run order."""
     keys = {}
@@ -114,6 +117,32 @@ def scored_ids(name: str) -> set[str]:
 def read_image(path: Path) -> Image.Image:
     with Image.open(path) as image:
         return ImageOps.exif_transpose(image).convert("RGB")
+
+
+def measure_latency(model: RewardModel, text_kind: str, count: int, device: str) -> dict | None:
+    """Time `count` requests (two edits of one test pair each, in one `score` call) unless an earlier run timed at
+    least as many; writes <model>.latency.json."""
+    path = BASELINES_DIR / f"{model.name}.latency.json"
+    if path.exists() and json.loads(path.read_text())["pairs"] >= count:
+        return None
+    requests = latency_pairs(count + WARMUP_PAIRS, text_kind)
+
+    def answer(request):
+        sample_id, keys = request["id"], request["keys"]
+        original = read_image(io.BytesIO(request["bytes"]["original"]))
+        model.score([(EditItem(f"{sample_id}/{key}", SAMPLES_DIR / sample_id / "original.jpg",
+                               SAMPLES_DIR / sample_id / f"{key}.jpg", request["text"]),
+                      original, read_image(io.BytesIO(request["bytes"][key]))) for key in keys])
+
+    print(f"latency: timing {model.name} on {len(requests)} requests ({WARMUP_PAIRS} warm-up)", flush=True)
+    reset_gpu_peak()
+    result = {"model": model.name, "text": text_kind, "batch": "the 2 edits of one request",
+              **timing_summary(time_requests(requests, answer)), "peak_gpu_memory_gb": gpu_peak_gb(),
+              "device": device, **gpu_info(), "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    write_json(path, result)
+    print(f"latency: {model.name}: median {result['median_ms']} ms, p90 {result['p90_ms']} ms, "
+          f"peak GPU memory {result['peak_gpu_memory_gb']} GB", flush=True)
+    return result
 
 
 def gpu_info() -> dict:
@@ -147,6 +176,8 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
     model.load(device)
     load_seconds = time.monotonic() - started
     print(f"loaded {model.name} on {device} in {load_seconds:.0f} s", flush=True)
+    if not shard or shard[0] == 0:
+        measure_latency(model, text_kind, SMOKE_LATENCY_PAIRS if limit is not None else model.latency_pairs, device)
 
     out = BASELINES_DIR / f"{model.name}{f'.part-{shard[0]}-of-{shard[1]}' if shard else ''}.jsonl"
     batches = [todo[start:start + model.batch_size] for start in range(0, len(todo), model.batch_size)]

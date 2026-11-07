@@ -71,17 +71,25 @@ def edit_features(edits: list[tuple[str, str]], backbones: list[str], inputs: li
         edit = np.stack([images[f"{sample_id}/{key}"] for sample_id, key in keep])
         original = np.stack([images[f"{sample_id}/original"] for sample_id, _ in keep])
         text = np.stack([texts[sample_id] for sample_id, _ in keep]) if texts else None
-        if "vec" in inputs:
-            blocks += [edit, edit - original] + ([edit * text] if text is not None else [])
-        if "sim" in inputs:
-            similarities = [rows_cosine(edit, original), np.linalg.norm(edit - original, axis=1)]
-            if text is not None:
-                edit_text, original_text = rows_cosine(edit, text), rows_cosine(original, text)
-                similarities += [edit_text, original_text, edit_text - original_text,
-                                 rows_cosine(edit - original, text)]
-            blocks.append(np.stack(similarities, axis=1))
+        blocks += backbone_blocks(edit, original, text, inputs)
     return (np.concatenate(blocks, axis=1).astype(np.float32),
             [f"{sample_id}/{key}" for sample_id, key in keep])
+
+
+def backbone_blocks(edit: np.ndarray, original: np.ndarray, text: np.ndarray | None,
+                    inputs: list[str]) -> list[np.ndarray]:
+    """The feature blocks of one backbone, one row per edit (rows of `original` and `text` are those of the edit's
+    sample; `text` is None for an image-only backbone). Shared by training and latency.py."""
+    blocks = []
+    if "vec" in inputs:
+        blocks += [edit, edit - original] + ([edit * text] if text is not None else [])
+    if "sim" in inputs:
+        similarities = [rows_cosine(edit, original), np.linalg.norm(edit - original, axis=1)]
+        if text is not None:
+            edit_text, original_text = rows_cosine(edit, text), rows_cosine(original, text)
+            similarities += [edit_text, original_text, edit_text - original_text, rows_cosine(edit - original, text)]
+        blocks.append(np.stack(similarities, axis=1))
+    return blocks
 
 
 def train_head(cfg: dict, features, train, dev, seed: int, device: str) -> tuple[dict, dict]:

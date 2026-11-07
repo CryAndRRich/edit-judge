@@ -13,6 +13,7 @@ from src.paths import SCORER_DIR
 from src.scorer import backbones
 from src.scorer import embed as embed_module
 from src.scorer import evaluate as evaluate_module
+from src.scorer import latency as latency_module
 from src.scorer.backbones.base import Backbone
 from src.scorer.data import load_pairs, load_rankings
 from src.scorer.embed import embed, load_embeddings, save_embeddings, square_image
@@ -190,6 +191,41 @@ class ScorerTests(unittest.TestCase):
         self.assertEqual(again["embedded"], [])                                 # cached: nothing to do
         self.assertEqual(again["cached"], ["colour"])
 
+    def test_latency_times_the_evaluated_path(self):
+        """The timed path gives the embeddings of embed.py and, from them, the run's own scores; the report lists
+        it. (Compared in two steps: the test images are nearly one colour, so float16 storage alone moves the
+        standardised features of the whole path a lot.)"""
+        backbones.BACKBONES["paint"] = ".base:Backbone"                    # stored under its own name
+        try:
+            with mock.patch.object(embed_module, "get_backbone", lambda name: ColourBackbone()), \
+                    mock.patch.object(latency_module, "get_backbone", lambda name: ColourBackbone()):
+                embed(["paint"], device="cpu", allow_cpu=True)
+                train_run({"name": "latency-run", "backbones": ["paint"], "inputs": ["vec", "sim"], **FAST},
+                          device="cpu")
+                result = latency_module.scorer_latency(["latency-run"], count=4, device="cpu",
+                                                       similarity={"paint-score": "paint"})
+        finally:
+            backbones.BACKBONES.pop("paint", None)
+        timed = result["runs"]["latency-run"]
+        self.assertEqual(timed["pairs"], 4)                                  # warm-up requests not counted
+        self.assertGreater(timed["median_ms"], 0)
+        self.assertIn("max_difference", timed)
+        images, texts = load_embeddings("paint", "images"), load_embeddings("paint", "texts-instruction")
+        stored = {row["image_id"]: row["score"]
+                  for row in iter_jsonl(SCORER_DIR / "runs" / "latency-run" / "scores.jsonl")}
+        backbone, run = ColourBackbone(), latency_module.TrainedRun("latency-run", "cpu")
+        backbone.load("cpu")
+        for request in latency_module.latency_pairs(3):
+            keys = [f"{request['id']}/{key}" for key in ("original", *request["keys"])]
+            vectors = latency_module.encode_request({"paint": backbone}, request, "cpu")["paint"][0]
+            self.assertLess(np.abs(vectors - np.stack([images[key] for key in keys])).max(), 1e-3)
+            scores = run.score({"paint": (np.stack([images[key] for key in keys]), texts[request["id"]][None])})
+            for score, key in zip(scores, keys[1:]):
+                self.assertAlmostEqual(score, stored[key], delta=1e-4)
+        self.assertIn("paint-score", result["baselines"])
+        self.assertIn("latency-run", report()["latency"])
+        self.assertIn("## Latency", (SCORER_DIR / "report.md").read_text())
+
     def test_baselines_report_and_differences(self):
         train_run({"name": "report-run", "backbones": ["synthetic"], "inputs": ["vec", "sim"], **FAST},
                   device="cpu")
@@ -223,6 +259,8 @@ class ScorerTests(unittest.TestCase):
         model = BatchBrokenReward(self.quality)
         result = run_reward(model, device="cpu", limit=6)
         self.assertEqual((result["scored"], result["retried_alone"], result["without_score"]), (6, 4, 0))
+        latency = json.loads((SCORER_DIR / "baselines" / "broken.latency.json").read_text())
+        self.assertEqual(latency["pairs"], 3)                                # smoke run: a few requests
         rows = {row["image_id"]: row["score"] for path in score_files("broken") for row in iter_jsonl(path)}
         self.assertEqual(rows, {image_id: self.quality[image_id] for image_id in rows})
 

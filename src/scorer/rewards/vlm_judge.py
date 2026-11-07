@@ -35,6 +35,7 @@ MAX_NEW_TOKENS = 512
 class VIEJudge(RewardModel):
     lora: str | None = None
     batch_size = 4
+    latency_pairs = 20          # seconds per request: fewer requests timed than for the reward models
     install = ("transformers>=4.56,<5 accelerate",
                f"git+https://github.com/VectorSpaceLab/EditScore.git@{COMMIT} --no-deps",
                "json-repair regex qwen-vl-utils peft")

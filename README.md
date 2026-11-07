@@ -502,18 +502,20 @@ Design, survey, baselines and results: `../docs/scorer.md`. In short:
   ImageReward, EditReward-7B, Qwen2.5-VL-7B zero-shot and EditScore-7B (`src/scorer/rewards`, each in its own
   Python environment, pinned upstream code).
 - **Evaluation:** pairwise accuracy with a 95% bootstrap interval over samples, paired differences between
-  scorers on the same pairs, top-1, the human ceiling; one run selected on dev.
+  scorers on the same pairs, top-1, the human ceiling; one run selected on dev; the latency of one request
+  (two edits, batch 1) of every scorer and baseline.
 
 ```bash
 python -m src.scorer embed --gpus 2              # Kaggle: embeddings, every image decoded once, one process per GPU
 python -m src.scorer baselines                   # similarity baselines and the human ceiling
 python -m src.scorer train                       # every run of configs/scorer.toml, 5 seeds each
-python -m src.scorer rewards --max-hours 10      # Kaggle: reward models and VLM judges, resumable
+python -m src.scorer latency                     # Kaggle: time of one request (2 edits) per run and similarity baseline
+python -m src.scorer rewards --max-hours 10      # Kaggle: reward models and VLM judges (timed too), resumable
 python -m src.scorer report                      # work/scorer/report.md (small files only: runs on a laptop)
 ```
 
 Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.json`, `scores.jsonl`, `head.pt`),
-`baselines/<name>.jsonl` (a score per edit), `report.md`. Notebooks: `scorer_train.ipynb`, `scorer_baselines.ipynb`.
+`baselines/<name>.jsonl` (a score per edit) and `<name>.latency.json`, `latency.json`, `report.md`. Notebooks: `scorer_train.ipynb`, `scorer_baselines.ipynb`.
 
 ## Data rules
 

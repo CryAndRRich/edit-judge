@@ -29,6 +29,12 @@ def split_of(sample_id: str) -> str:
     return SPLITS[-1][0]
 
 
+def sample_order(sample_id: str) -> str:
+    """A fixed, well-mixed order of samples (by a hash of the ID), used by the reward runner and the latency
+    measurement."""
+    return hashlib.sha1(f"order:{sample_id}".encode()).hexdigest()
+
+
 def version_ids(version: str | None) -> set[str] | None:
     """Sample IDs of one ranking version (from work/ranking/<version>/manifest.json), or None for "all"."""
     if version in (None, "all"):

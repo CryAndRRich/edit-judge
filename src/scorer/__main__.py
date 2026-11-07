@@ -5,14 +5,18 @@
                                                       cache embeddings (GPU; Kaggle); --gpus runs one process per GPU
     python -m src.scorer baselines                    similarity baselines (from embeddings), human ceiling
     python -m src.scorer train [--run NAME ...]       heads of configs/scorer.toml, every seed
-    python -m src.scorer report                       work/scorer/report.md: runs, baselines, paired differences
+    python -m src.scorer latency [--run NAME ...] [--pairs N]
+                                                      time one request (2 edits of a pair) per trained run and
+                                                      similarity baseline (GPU)
+    python -m src.scorer report                       work/scorer/report.md: runs, baselines, paired differences,
+                                                      latency
     python -m src.scorer reward --model NAME [--split test] [--limit N] [--max-hours H] [--shard i/n]
                                                       one reward model or VLM judge, in the current environment
     python -m src.scorer rewards --models a,b [--max-hours H] [--limit N]
                                                       several, each in its own environment and process
 
-Without a GPU, `embed` and `reward` refuse more than a few items (src/common/device.py). `train` is fast on a GPU
-and takes minutes on a CPU; `baselines` and `report` need no GPU.
+Without a GPU, `embed`, `latency` and `reward` refuse more than a few items (src/common/device.py). `train` is
+fast on a GPU and takes minutes on a CPU; `baselines` and `report` need no GPU.
 """
 
 import argparse
@@ -35,7 +39,8 @@ def split_names(text: str | None) -> list[str] | None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.scorer", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["list", "embed", "baselines", "train", "report", "reward", "rewards"])
+    parser.add_argument("command", choices=["list", "embed", "baselines", "train", "latency", "report", "reward",
+                                                      "rewards"])
     parser.add_argument("--backbones", help="embed: comma-separated backbones (default: all)")
     parser.add_argument("--gpus", type=int, help="embed: one process per GPU (default: run here)")
     parser.add_argument("--model", help="reward: the reward model")
@@ -47,9 +52,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-hours", type=float, help="reward, rewards: stop before the next batch after this")
     parser.add_argument("--shard", help="embed, reward: i/n, this process's share")
     parser.add_argument("--device")
-    parser.add_argument("--allow-cpu", action="store_true", help="embed, reward: allow a large run without a GPU")
+    parser.add_argument("--allow-cpu", action="store_true",
+                        help="embed, latency, reward: allow a large run without a GPU")
     parser.add_argument("--workers", type=int, help="embed: DataLoader workers (default 4 on a GPU, else 0)")
-    parser.add_argument("--run", action="append", help="train: only these runs of the config")
+    parser.add_argument("--run", action="append", help="train, latency: only these runs")
+    parser.add_argument("--pairs", type=int, help="latency: requests timed (default 50)")
     parser.add_argument("--config", default="configs/scorer.toml")
     args = parser.parse_args(argv)
 
@@ -85,6 +92,10 @@ def main(argv: list[str] | None = None) -> None:
         for run in runs:
             result.append(train_run(run, cfg.get("train"), version, args.device))
             print(json.dumps(result[-1]), flush=True)
+    elif args.command == "latency":
+        from .latency import LATENCY_PAIRS, scorer_latency
+        result = scorer_latency(args.run, args.pairs or LATENCY_PAIRS, args.device, args.allow_cpu,
+                                text_kind=text_kind)
     elif args.command == "report":
         from .report import report
         result = report(version)

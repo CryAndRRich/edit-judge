@@ -9,13 +9,16 @@ baselines/*.jsonl (per-edit scores) and baselines.json (human ceiling).
 - Baselines: dev and test accuracy on the pairs they scored (the reward models score the test split only).
 - Paired differences on the test split: the selected run minus each baseline, on the pairs both scored, with a
   95% bootstrap interval over samples. An interval above 0 means the selected run is better.
+- Latency of one request (two edits of a pair, latency.py), next to the test accuracy: latency.json (trained runs,
+  similarity baselines) and baselines/<model>.latency.json (reward models, VLM judges).
 """
 
 import json
 
 from ..common.io import iter_jsonl, write_json
 from ..paths import SCORER_DIR
-from .evaluate import baseline_scores, eval_data, evaluate_scores, paired_difference
+from .evaluate import BASELINES_DIR, baseline_scores, eval_data, evaluate_scores, paired_difference
+from .latency import LATENCY_FILE, load_latency
 
 
 def load_runs() -> list[dict]:
@@ -25,6 +28,15 @@ def load_runs() -> list[dict]:
 
 def run_scores(name: str) -> dict[str, float]:
     return {row["image_id"]: row["score"] for row in iter_jsonl(SCORER_DIR / "runs" / name / "scores.jsonl")}
+
+
+def load_latencies() -> dict[str, dict]:
+    """Name -> latency of every trained run and baseline that was timed."""
+    scorer = load_latency(LATENCY_FILE)
+    latencies = {**scorer.get("runs", {}), **scorer.get("baselines", {})}
+    for path in sorted(BASELINES_DIR.glob("*.latency.json")):
+        latencies[path.name.removesuffix(".latency.json")] = load_latency(path)
+    return latencies
 
 
 def interval(result: dict) -> str:
@@ -66,6 +78,19 @@ def report(version: str = "all") -> dict:
             low, high = result["ci95"]
             lines.append(f"| {name} | {result['pairs']} | {result['difference']} [{low}; {high}] |")
 
+    latencies = load_latencies()
+    if latencies:
+        accuracy = {run["name"]: run["ensemble"]["test"]["accuracy"] for run in runs}
+        accuracy.update({name: result["test"]["accuracy"] for name, result in baselines.items()})
+        lines += ["", "## Latency of one request (2 edits of a pair, batch 1, after warm-up)", "",
+                  "| model | kind | median ms | p90 ms | peak GPU memory GB | GPU | test accuracy |",
+                  "|---|---|---|---|---|---|---|"]
+        run_names = {run["name"] for run in runs}
+        for name, latency in sorted(latencies.items(), key=lambda item: item[1]["median_ms"]):
+            lines.append(f"| {name} | {'trained run' if name in run_names else 'baseline'} | {latency['median_ms']} | "
+                         f"{latency['p90_ms']} | {latency.get('peak_gpu_memory_gb')} | "
+                         f"{latency.get('gpu') or latency.get('device')} | {accuracy.get(name, '-')} |")
+
     human_path = SCORER_DIR / "baselines.json"
     human = json.loads(human_path.read_text(encoding="utf-8")).get("human", {}) if human_path.exists() else {}
     test_human = human.get("test", {})
@@ -81,6 +106,6 @@ def report(version: str = "all") -> dict:
               "baselines": {name: {"dev": result["dev"]["accuracy"], "test": result["test"]["accuracy"],
                                    "test_ci95": result["test"]["ci95"], "test_pairs": result["test"]["pairs"]}
                             for name, result in baselines.items()},
-              "selected_minus_baseline": differences}
+              "selected_minus_baseline": differences, "latency": latencies}
     write_json(SCORER_DIR / "report.json", result)
     return result
