@@ -11,7 +11,7 @@ The work is split into stages (the plan follows the course project proposal):
 |---|---|---|
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 and v2 ranked, final dataset exported) |
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
-| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Qwen2.5-VL-7B on the whole dataset, running on Kaggle (`instructions_complete.ipynb`) |
+| 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Pilot on v1: 60.4% test pair accuracy vs 50.6% for CLIP-score; fixed design and 8 baselines ready for Kaggle (`../docs/scorer.md`) |
 | 4. Editing models per operation, and their benchmark | (no code yet) | Planned |
 | 5. The editing assistant | (no code yet) | Planned |
@@ -458,6 +458,16 @@ Both passes share one loaded model and one time budget (`--max-hours`); a stoppe
 Output: `work/instructions/<client>/final.jsonl` (`id`, `instruction`, `instruction_source` realedit or qwen,
 `categories` as "operation subject" strings, `problems`) and `final.summary.json` (done, left, hours left). With
 qwen2.5-vl-7b on 2 x T4 the 16,020 requests left take about 13-14 h: two sessions of the notebook.
+
+Result (2026-11-07, 2 sessions: 2.7 s per categorize request, 3.2 s per full analysis). On the 13,899 samples of
+the final dataset: 12,736 RealEdit instructions, 1,072 written by the model, 91 corrected by hand, and every
+sample has at least one valid category (1 for 11,206, 2 or more for 2,693). Two fixes after the run:
+- the model sometimes answered labels outside the taxonomy ("Move Person", "Change-Color Helmet", a bare
+  "Enhance"); the parser maps them to the closest taxonomy name (`loose_category`, word lists in `schema.py`,
+  recorded as "mapped ..." problems), and `reparse` applied it to the stored answers without the model;
+- for about 90 vague requests ("Make the photo more attractive") the model wrote a category name ("Enhance
+  Nature") or one word ("touchup") as the instruction; they were rewritten by hand following Fig. 19 in
+  `work/instructions/qwen2.5-vl-7b/manual.jsonl`, which `merge` applies (`instruction_source` "manual").
 
 - **Clients** (`clients/`): open VLMs with one interface (`generate_batch`); Qwen2.5-VL 3B and 7B are registered
   (bfloat16 on GPUs that support it, else float16). An answer from a batch that is not JSON (float16 can give

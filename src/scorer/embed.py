@@ -4,6 +4,7 @@ similarity baseline is trained and evaluated from the cache without a GPU.
     work/scorer/embeddings/<backbone>/images[.part-I-of-N].npy + .json   one row per image_id
                                       texts-instruction.npy + .json      one row per sample ID
                                       texts-request.npy + .json
+                                      texts.json                         digest of the texts embedded
                                       meta[.part-I-of-N].json            model, device, time per image
 
 Speed: every image is decoded once for all backbones (JPEG draft mode, EXIF orientation), padded to a square on
@@ -11,9 +12,10 @@ grey and resized to SQUARE_SIZE px in DataLoader workers; each backbone then res
 batch on the GPU (backbones/base.py). All backbones sit on one GPU together (about 7 GB in float16), and
 `embed_on_gpus` runs one process per GPU, each on its own shard of the images (`shard=(i, n)`); readers load the
 part files as one table. A backbone whose embeddings already cover the images in scope is skipped, so cached
-embeddings copied from an earlier run are reused.
+embeddings copied from an earlier run are reused; texts are embedded again when they changed (texts.json).
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -43,6 +45,18 @@ def embedding_dir(backbone_name: str):
 
 def part_suffix(shard: tuple[int, int] | None) -> str:
     return f".part-{shard[0]}-of-{shard[1]}" if shard else ""
+
+
+def texts_digests(samples: list[dict]) -> dict[str, str]:
+    """A digest of the sample IDs and texts of each text kind: cached text embeddings are used only when the
+    texts are the same (an older dataset version without instructions falls back to the requests)."""
+    return {kind: hashlib.sha1("\n".join(f"{sample['id']}\t{text_of(sample, kind)}" for sample in samples)
+                               .encode()).hexdigest() for kind in TEXT_KINDS}
+
+
+def stored_digests(backbone_name: str) -> dict | None:
+    path = embedding_dir(backbone_name) / "texts.json"
+    return json.loads(path.read_text()) if path.exists() else None
 
 
 def save_embeddings(backbone_name: str, kind: str, ids: list[str], vectors: np.ndarray) -> None:
@@ -115,8 +129,9 @@ def embed(backbone_names: list[str] | None = None, version: str = "all", limit: 
     wanted = {ref.image_id for ref in refs}
     todo = [name for name in backbone_names if not wanted <= set(load_embeddings(name, "images"))]
     with_texts = not shard or shard[0] == 0
+    digests = texts_digests(samples)
     text_todo = [name for name in backbone_names if with_texts and get_backbone(name).has_text
-                 and not {sample["id"] for sample in samples} <= set(load_embeddings(name, "texts-instruction"))]
+                 and stored_digests(name) != digests]
     summary = {"images": len(refs), "samples": len(samples), "cached": sorted(set(backbone_names) - set(todo)),
                "shard": "%d/%d" % shard if shard else None}
     if not todo and not text_todo:
@@ -155,6 +170,7 @@ def embed(backbone_names: list[str] | None = None, version: str = "all", limit: 
             text_vectors = np.concatenate([backbones[name].encode_text_batch(texts[start:start + 256])
                                            for start in range(0, len(texts), 256)])
             save_embeddings(name, f"texts-{kind}", [sample["id"] for sample in samples], text_vectors)
+        write_json(embedding_dir(name) / "texts.json", digests)
 
     gpu = torch.cuda.get_device_name(0) if device == "cuda" else None
     per_image = round(image_seconds / len(refs), 5) if todo and refs else None

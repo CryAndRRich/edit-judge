@@ -60,6 +60,49 @@ ALIASES = {
 }
 
 
+# Loose words the 7B model wrote instead of taxonomy names (full run, 2026-11-07), mapped by hand to the closest
+# RealEdit name following the definitions above. Used only for labels that are not valid taxonomy names
+# (parse.loose_category); a word not listed here becomes "Other".
+OPERATION_WORDS = {
+    "Change-Color": ["colorize", "colorise", "colorization", "colour", "color correct", "color correcting",
+                     "recolor", "silhouette", "darken", "lighten", "change hair", "add color"],
+    "Enhance": ["fix", "clean", "clean up", "cleanup", "touch up", "retouch", "sharpen", "blur", "unblur", "brighten",
+                "adjust", "balance", "match", "reduce noise", "denoise", "smooth", "focus", "define", "un distort",
+                "highlight", "reduce glow", "add brightness"],
+    "Image-Formatting": ["vectorize", "digitize", "trace", "resize", "crop", "scale", "save", "center", "frame",
+                         "rotate", "flip", "flip image", "convert", "separate", "make"],
+    "Add": ["insert", "extend"],
+    "Remove": ["clear"],
+    "Replace": ["change", "swap", "face swap", "alter", "translate", "change haircut", "change expression",
+                "change style"],
+    "Open-Ended": ["create", "draw", "drawn", "render", "cartoonify", "animate", "stylize", "mashup", "fill",
+                   "modernize"],
+    "Other": ["move", "combine", "merge", "blend", "duplicate", "mirror", "change size", "reduce size", "reduce",
+              "change position", "change length", "lengthen", "censor", "modify", "keep"],
+}
+SUBJECT_WORDS = {
+    "Clothing/Accessories": ["helmet", "glasses", "tie", "mask", "glove", "shoe", "shoes", "costume", "jewelry", "ring",
+                             "bag", "leash", "hat", "laces", "wristband", "charm"],
+    "Body-Part": ["eyes", "eye", "ears", "ear", "tongue", "body", "skin", "lips", "lipstick", "makeup", "tattoo",
+                  "red eye"],
+    "Nature": ["flower", "flowers", "water", "sky", "sun", "moon", "plant", "weather", "clouds", "ocean", "beach"],
+    "Manmade-Structure": ["cabinets", "chair", "ceiling", "stand", "basket", "broom", "umbrella", "guitar",
+                          "pickguard", "phone", "camera", "bottle", "battery", "pillow", "trophy", "stick", "ball",
+                          "weapon", "gun", "lightsaber", "light saber", "cables", "rope", "ropes", "sign", "trash",
+                          "lights", "lens", "money", "sand castle"],
+    "Logo": ["flag", "symbol", "emoji"],
+    "Animal": ["fish", "feather"],
+    "Food": ["beer"],
+    "Media": ["magazine", "screen", "images", "poster", "banner", "art", "animation", "border", "waveform", "date"],
+    "Text/Patterns": ["pattern", "texture", "watermark", "tag", "design"],
+}
+# "Remove <one of these>" is RealEdit's Enhance ("remove flash/glare/lens flares"); "isolate X" and "extract X"
+# mean removing the background around X
+ENHANCE_REMOVALS = {"flash", "glare", "lens flare", "reflection", "reflections", "shadow", "shadows", "shadowing",
+                    "red eye", "noise", "filter", "water spots"}
+BACKGROUND_REMOVALS = {"isolate", "extract"}
+
+
 def normalize(label: str, allowed: dict) -> str | None:
     """The canonical label for `label` (exact, case-insensitive, or a RealEdit short name), else None."""
     key = label.strip().strip(".").strip()

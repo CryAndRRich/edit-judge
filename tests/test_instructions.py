@@ -4,7 +4,7 @@ from tests.helpers import make_dataset  # sets the temporary data folders first
 
 from src.instructions import prompts
 from src.instructions.clients.base import Client
-from src.instructions.parse import parse_answer, split_category
+from src.instructions.parse import loose_category, parse_answer, split_category
 from src.instructions.run import output_path, result_files, run
 from src.instructions.stats import agree, kappa, stats
 from src.common.io import read_jsonl
@@ -46,8 +46,19 @@ class ParseTests(unittest.TestCase):
         r = parse_answer('{"instruction": "humorous.", "categories": ["Open-Ended Other", "Dance Person"]}',
                          "s", "m", "p")
         self.assertTrue(r.is_humorous)
-        self.assertEqual(r.categories, [{"operation": "Open-Ended", "subject": "Other"}])
-        self.assertEqual(r.problems, ["unknown category 'Dance Person'"])
+        self.assertEqual(r.categories, [{"operation": "Open-Ended", "subject": "Other"},
+                                        {"operation": "Other", "subject": "Person"}])
+        self.assertEqual(r.problems, ["mapped 'Dance Person' to 'Other Person'"])
+
+    def test_loose_labels(self):
+        self.assertEqual(loose_category("Change-Color Helmet"), ("Change-Color", "Clothing/Accessories"))
+        self.assertEqual(loose_category("Change-Clothing Person"), ("Replace", "Clothing/Accessories"))
+        self.assertEqual(loose_category("Remove Reflection"), ("Enhance", "Other"))
+        self.assertEqual(loose_category("Isolate Animal"), ("Remove", "Background"))
+        self.assertEqual(loose_category("Enhance"), ("Enhance", "Other"))
+        r = parse_answer('{"categories": ["Remove Person", "Other", "Change-Color"]}', "s", "m", "categorize_v1")
+        self.assertEqual(r.categories, [{"operation": "Remove", "subject": "Person"},
+                                        {"operation": "Change-Color", "subject": "Other"}])
 
     def test_split_pairs_and_extra_words(self):
         r = parse_answer('{"instruction": "x", "categories": ["Remove", "Background", "Add Person Background"]}',
@@ -114,7 +125,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(row.categories, [{"operation": "Remove", "subject": "Background"},
                                           {"operation": "Remove", "subject": "Person"}])
         row = parse_answer('{"categories": ["Rotate Background"]}', "s1", "m", "categorize_v1")
-        self.assertEqual(row.problems, ["unknown category 'Rotate Background'", "no category"])   # no instruction asked
+        self.assertEqual(row.problems, ["mapped 'Rotate Background' to 'Image-Formatting Background'"])
 
     def test_complete_uses_realedit_instructions_and_resumes(self):
         """Samples with a RealEdit instruction get categories only; the others the full prompt; a second call

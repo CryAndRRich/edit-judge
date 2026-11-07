@@ -16,6 +16,11 @@ stopped, and every merge writes work/instructions/<client>/final.jsonl, one line
      "categories": ["Remove Text/Patterns"], "problems": []}
 
 and final.summary.json (done, left, the hours left at the measured speed).
+
+Hand corrections go in work/instructions/<client>/manual.jsonl, one line per corrected sample:
+{"id": "...", "instruction": "...", "categories": ["Enhance Person"]} (categories optional). The merge applies them
+over the model's output with "instruction_source": "manual" (used where the 7B model wrote a category name,
+e.g. "Enhance Background", instead of an instruction).
 """
 
 import json
@@ -49,6 +54,8 @@ def merge(client_name: str, instructions: dict[str, str] | None = None) -> dict:
     instructions = realedit_instructions() if instructions is None else instructions
     full = results_of(client_name, "analyze_v2")
     categorized = results_of(client_name, "categorize_v1")
+    manual_path = INSTRUCTIONS_DIR / client_name / "manual.jsonl"
+    manual = {row["id"]: row for row in iter_jsonl(manual_path)} if manual_path.exists() else {}
     lines, left, problems = [], Counter(), Counter()
     for sample in iter_samples():
         sample_id = sample["id"]
@@ -66,6 +73,10 @@ def merge(client_name: str, instructions: dict[str, str] | None = None) -> dict:
                 continue
             instruction, source, row_problems = label_row["instruction"], "qwen", label_row["problems"]
         categories = [f"{c['operation']} {c['subject']}" for c in label_row["categories"]]
+        if sample_id in manual:
+            fix = manual[sample_id]
+            instruction, source = fix["instruction"], "manual"
+            categories, row_problems = fix.get("categories") or categories, []
         problems.update(row_problems)
         lines.append({"id": sample_id, "instruction": instruction, "instruction_source": source,
                       "categories": categories, "problems": row_problems})
