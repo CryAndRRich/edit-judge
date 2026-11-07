@@ -30,6 +30,7 @@ from ...paths import SAMPLES_DIR, SCORER_DIR
 from ..data import load_pairs
 
 BASELINES_DIR = SCORER_DIR / "baselines"
+PROGRESS_SECONDS = 60            # a progress line after the first 3 batches, then at least once a minute
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
     if not todo:
         return {**summary, "scored": 0, "left": 0, "complete": True}
     check_heavy_run(device, len(todo), allow_cpu)
+    print(f"loading {model.name}: {model.model_id} (the weights are downloaded on first use)", flush=True)
     started = time.monotonic()
     model.load(device)
     load_seconds = time.monotonic() - started
@@ -123,6 +125,7 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
     out = BASELINES_DIR / f"{model.name}{f'.part-{shard[0]}-of-{shard[1]}' if shard else ''}.jsonl"
     batches = [todo[start:start + model.batch_size] for start in range(0, len(todo), model.batch_size)]
     started, scored, failed = time.monotonic(), 0, 0
+    last_print = started
     deadline = started + max_hours * 3600 if max_hours is not None else None
 
     def decode(batch_items):
@@ -142,8 +145,9 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
             append_jsonl(out, ({"image_id": item.image_id, **result} for (item, _, _), result in zip(batch, results)))
             scored += len(batch)
             failed += sum(result.get("score") is None for result in results)
-            if (index + 1) % max(1, 50 // model.batch_size) == 0 or index + 1 == len(batches):
-                rate = scored / max(time.monotonic() - started, 1e-9)
+            if index < 3 or time.monotonic() - last_print >= PROGRESS_SECONDS or index + 1 == len(batches):
+                last_print = time.monotonic()
+                rate = scored / max(last_print - started, 1e-9)
                 print(f"{model.name}: {scored}/{len(todo)} edits ({100 * scored // len(todo)}%), "
                       f"{1 / rate:.2f} s/edit, about {(len(todo) - scored) / rate / 3600:.1f} h left", flush=True)
     seconds = time.monotonic() - started

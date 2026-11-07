@@ -28,6 +28,14 @@ def last_line(path) -> str:
     return lines[-1][-160:] if lines else ""
 
 
+def log_tail(path, lines: int = 15) -> str:
+    """The last `lines` lines of a log, to show why a run failed."""
+    try:
+        return "\n".join(Path(path).read_text(errors="ignore").splitlines()[-lines:])
+    except FileNotFoundError:
+        return ""
+
+
 def gpu_count() -> int:
     if not shutil.which("nvidia-smi"):
         return 0
@@ -65,7 +73,10 @@ def run_shards(command: list[str], name: str, log_dir: Path, gpus: int | None = 
     for process, log_file, log_path in processes:
         log_file.close()
         results[log_path.stem] = {"returncode": process.returncode, "log": str(log_path)}
-        outcome = "done" if process.returncode == 0 else f"FAILED: {last_line(log_path)}"
-        log_progress(f"{log_path.stem} {outcome}")
+        if process.returncode == 0:
+            log_progress(f"{log_path.stem} done")
+        else:
+            log_progress(f"{log_path.stem} FAILED (exit code {process.returncode}), end of {log_path}:")
+            print(log_tail(log_path), flush=True)
     return {"name": name, "gpus": gpus, "seconds": round(time.monotonic() - started), "shards": results,
             "failed": [stem for stem, result in results.items() if result["returncode"]]}

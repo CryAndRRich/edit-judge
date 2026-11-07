@@ -3,8 +3,9 @@
 # one environment per model (its `install` tuple, src/common/envs.py) right before the model runs. This file is the
 # record. The embeddings (src/scorer/embed.py) need only requirements-ml.txt (transformers, open_clip_torch).
 -r requirements-ml.txt
-# imagereward: THUDM/ImageReward at a pinned commit (brings BLIP code, fairscale, timm, CLIP)
-git+https://github.com/THUDM/ImageReward.git@78f8051059b34fef8e0032ccb40561c23a2ddbbb
+# imagereward: THUDM/ImageReward at a pinned commit, downloaded as source at run time (its setup.py needs
+# pkg_resources); only its BLIP model modules are imported, which need transformers and timm
+timm
 # editreward: TIGER-AI-Lab/EditReward at a pinned commit (installed without its training dependencies)
 git+https://github.com/TIGER-AI-Lab/EditReward.git@77a93aaa461fe9187e0ff841b59ecc0d0620bb7f
 transformers==4.57.0                      # editreward (as its pyproject.toml pins)

@@ -12,7 +12,7 @@ import sys
 import time
 
 from ...common.envs import ensure_env
-from ...common.gpus import log_progress
+from ...common.gpus import log_progress, log_tail
 from ...common.io import write_json
 from ...paths import REPO_ROOT, SCORER_DIR
 
@@ -57,9 +57,16 @@ def run_all(models: list[str], split: str = "test", text_kind: str = "instructio
             log_progress(f"no time left for {name}")
             break
         model = get_reward_model(name)
-        log_progress(f"environment for {name}")
-        with open(logs / f"env-{name}.log", "a") as log:
-            python = ensure_env(model.install, log, model.isolated)
+        log_progress(f"environment for {name} (pip install, a few minutes the first time; log: env-{name}.log)")
+        env_log = logs / f"env-{name}.log"
+        try:
+            with open(env_log, "a") as log:
+                python = ensure_env(model.install, log, model.isolated)
+        except subprocess.CalledProcessError as error:
+            log_progress(f"FAILED environment for {name} ({' '.join(map(str, error.cmd))[:200]}), end of the log:")
+            print(log_tail(env_log, 25), flush=True)
+            exit_codes[name] = "environment failed"
+            continue
         log_progress(f"start {name} ({hours_left:.2f} h left)")
         command = [python, "-u", "-m", "src.scorer", "reward", "--model", name, "--split", split, "--text", text_kind,
                    "--max-hours", f"{hours_left:.3f}"] + (["--limit", str(limit)] if limit else [])
