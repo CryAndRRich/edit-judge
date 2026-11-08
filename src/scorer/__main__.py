@@ -12,7 +12,7 @@
                                                       latency
     python -m src.scorer reward --model NAME [--split test] [--limit N] [--max-hours H] [--shard i/n]
                                                       one reward model or VLM judge, in the current environment
-    python -m src.scorer rewards --models a,b [--max-hours H] [--limit N]
+    python -m src.scorer rewards --models a,b [--max-hours H] [--limit N] [--shard i/n]
                                                       several, each in its own environment and process
 
 Without a GPU, `embed`, `latency` and `reward` refuse more than a few items (src/common/device.py). `train` is
@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--version", help="ranking version: all, v1 or v2 (default: the config's; v1, v2 need work/)")
     parser.add_argument("--limit", type=int, help="embed: samples; reward, rewards: edits per model")
     parser.add_argument("--max-hours", type=float, help="reward, rewards: stop before the next batch after this")
-    parser.add_argument("--shard", help="embed, reward: i/n, this process's share")
+    parser.add_argument("--shard", help="embed, reward, rewards: i/n, this process's share")
     parser.add_argument("--device")
     parser.add_argument("--allow-cpu", action="store_true",
                         help="embed, latency, reward: allow a large run without a GPU")
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         from .rewards import REWARD_MODELS, run_all
         result = run_all(split_names(args.models) or list(REWARD_MODELS), args.split, text_kind,
-                         args.max_hours or 10.0, args.limit)
+                         args.max_hours or 10.0, args.limit, parse_shard(args.shard))
     print(json.dumps(result, indent=1, ensure_ascii=False))
     if isinstance(result, dict) and result.get("failed"):
         raise SystemExit(f"failed: {result['failed']}")

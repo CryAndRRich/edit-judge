@@ -7,7 +7,10 @@
 Two judges share this code, so their difference is what EditScore's fine-tuning adds:
 - `qwen-judge`: Qwen2.5-VL-7B-Instruct zero-shot;
 - `editscore`: the same model with the EditScore-7B LoRA merged in (EditScore/EditScore-7B, trained on edit
-  preferences).
+  preferences). The LoRA is merged by `merge_lora`, W + (lora_alpha / r) B A, which is what upstream's
+  `PeftModel.from_pretrained(...).merge_and_unload()` computes for this adapter (plain LoRA: no DoRA, no rsLoRA,
+  no extra modules; checked when loading). PEFT itself refuses to load on Kaggle (it rejects the machine's
+  torchao 0.10 when it looks for quantized layers).
 
 Code: VectorSpaceLab/EditScore at COMMIT (its prompts, its chat template with <img1>/<img2> labels and its output
 parser are imported, not copied). Changes for speed and repeatability on 2 x T4, recorded in ../docs/scorer.md:
@@ -20,7 +23,9 @@ parser are imported, not copied). Changes for speed and repeatability on 2 x T4,
   batch_evaluate) and is marked "parsed": false, instead of upstream's retry with sampling and random guess.
 """
 
+import json
 import math
+from pathlib import Path
 
 from .base import RewardModel
 
@@ -52,8 +57,7 @@ class VIEJudge(RewardModel):
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             BASE_MODEL, dtype=dtype, device_map="auto" if device == "cuda" else None)
         if self.lora:
-            from peft import PeftModel
-            model = PeftModel.from_pretrained(model, self.lora).merge_and_unload()
+            print(f"merged the LoRA into {merge_lora(model, self.lora)} layers", flush=True)
         self.model = model.eval()
         self.processor = AutoProcessor.from_pretrained(
             BASE_MODEL, size={"shortest_edge": MIN_PIXELS, "longest_edge": MAX_PIXELS})
@@ -108,6 +112,39 @@ class VIEJudge(RewardModel):
                             "parsed": consistency_parsed and quality_parsed,
                             "sc_answer": consistency_answer[:1500], "pq_answer": quality_answer[:1500]})
         return results
+
+
+def merge_lora(model, repo: str) -> int:
+    """Add the LoRA of the Hugging Face repo `repo` (PEFT format) into the weights of `model`, in place; returns
+    the number of layers changed. Fails if the adapter is not a plain LoRA or names a layer the model lacks."""
+    import torch
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    config = json.loads(Path(hf_hub_download(repo, "adapter_config.json")).read_text())
+    plain = (config.get("peft_type") == "LORA" and config.get("bias", "none") == "none" and not config.get("use_dora")
+             and not config.get("use_rslora") and not config.get("modules_to_save") and not config.get("rank_pattern")
+             and not config.get("alpha_pattern") and not config.get("fan_in_fan_out"))
+    if not plain:
+        raise SystemExit(f"{repo}: not a plain LoRA, merge it with PEFT instead")
+    scaling = config["lora_alpha"] / config["r"]
+    adapter = load_file(hf_hub_download(repo, "adapter_model.safetensors"))
+    layers = dict(model.named_modules())
+    merged = 0
+    for key, down in adapter.items():
+        if not key.endswith(".lora_A.weight"):
+            continue
+        name = key.removeprefix("base_model.model.").removesuffix(".lora_A.weight")
+        if name not in layers:
+            raise SystemExit(f"{repo}: the model has no layer {name!r}")
+        weight = layers[name].weight
+        up = adapter[key.replace(".lora_A.", ".lora_B.")].to(weight.device, torch.float32)
+        with torch.no_grad():
+            weight.copy_((weight.float() + scaling * (up @ down.to(weight.device, torch.float32))).to(weight.dtype))
+        merged += 1
+    if merged * 2 != len(adapter):
+        raise SystemExit(f"{repo}: {len(adapter)} tensors for {merged} layers")
+    return merged
 
 
 class QwenJudge(VIEJudge):

@@ -11,7 +11,9 @@ Code: TIGER-AI-Lab/EditReward at COMMIT, with the settings of its config/EditRew
 - the model is spread over both GPUs (device_map="auto") instead of `model.to(device)` on one GPU (16 GB of
   weights do not fit one T4);
 - the checkpoint is copied into the model tensor by tensor (the upstream code loads the whole 16.6 GB state dict
-  in memory, more than Kaggle's RAM next to the base model).
+  in memory, more than Kaggle's RAM next to the base model);
+- the pooling at the reward token gets the token IDs on the device of the logits: spread over two GPUs, the
+  logits come out on the last one, and upstream's `_pool_logits` indexes them with a mask built on the first.
 """
 
 from .base import RewardModel
@@ -68,6 +70,9 @@ class EditReward(RewardModel):
             raise SystemExit(f"EditReward checkpoint misses {len(missing)} parameters, e.g. {missing[:3]}")
         for head in model.rm_heads.values():
             head.to(torch.float32)
+        pool = model._pool_logits             # an instance attribute, found before the class's method
+        model._pool_logits = lambda logits, input_ids, batch_size: pool(logits, input_ids.to(logits.device),
+                                                                         batch_size)
         self.model = model.eval()
         self.input_device = model.get_input_embeddings().weight.device
 

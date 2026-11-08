@@ -12,7 +12,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 1. Data preparation: crawl, build and normalize the dataset, team ranking | `src/crawl`, `src/process`, `src/rank`, `apps/ranking` | Done (v1 and v2 ranked, final dataset exported) |
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
-| 3. The learned scorer and its baselines | `src/scorer` | Pilot on v1: 60.4% test pair accuracy vs 50.6% for CLIP-score; fixed design and 8 baselines ready for Kaggle (`../docs/scorer.md`) |
+| 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
 | 4. Editing models per operation, and their benchmark | (no code yet) | Planned |
 | 5. The editing assistant | (no code yet) | Planned |
 
@@ -35,7 +35,6 @@ src/                        Python package (run as `python -m src.<module>`)
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
 configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
 notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*
-tests/                      unit tests on a tiny synthetic dataset (never on data/)
 data/                       local only, git-ignored: the final dataset (images/, pairs.jsonl); see "Data"
 work/                       local only, git-ignored: everything used to build data/, and stage outputs
 requirements.txt            dependencies of stage 1
@@ -56,7 +55,6 @@ Python 3.10 or newer.
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env        # then fill in what you need; never commit .env
-.venv/bin/python -m unittest discover -s tests -t .
 ```
 
 All commands run from the repository root, e.g. `.venv/bin/python -m src.rank --help`.
@@ -98,7 +96,8 @@ Every task has its own folder, so members can work in parallel and merge with fe
   are announced to the coordinator.
 - Keep the shared formats: results keyed by `image_id` ("<sample id>/<key>") or sample ID, JSONL files under the
   task's data folder, settings in `configs/`.
-- Add tests for new logic in `tests/` (synthetic data only), and run them before asking for a merge.
+- Unit tests (synthetic data only) are kept on the coordinator's computer, not in the repository (`tests/` is
+  git-ignored).
 - Never commit `data/`, `work/`, model weights, notebook outputs, or `.env`.
 
 ## Data
@@ -510,7 +509,8 @@ python -m src.scorer embed --gpus 2              # Kaggle: embeddings, every ima
 python -m src.scorer baselines                   # similarity baselines and the human ceiling
 python -m src.scorer train                       # every run of configs/scorer.toml, 5 seeds each
 python -m src.scorer latency                     # Kaggle: time of one request (2 edits) per run and similarity baseline
-python -m src.scorer rewards --max-hours 10      # Kaggle: reward models and VLM judges (timed too), resumable
+python -m src.scorer rewards --max-hours 10      # Kaggle: reward models and VLM judges (timed too), resumable;
+                                                 # --shard i/n: one part of the edits per session or member
 python -m src.scorer report                      # work/scorer/report.md (small files only: runs on a laptop)
 ```
 

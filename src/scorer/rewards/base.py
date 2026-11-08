@@ -8,12 +8,13 @@ on where it stopped:
   every batch; edits already in any of the model's files (from this run or from an earlier session whose output
   was copied in) are skipped;
 - `max_hours` stops before the next batch once that time has passed;
-- `shard=(i, n)` takes every n-th edit (one process per GPU, for models that fit one GPU);
+- `shard=(i, n)` takes every n-th edit: one process per GPU for models that fit one GPU, or one Kaggle session
+  (one team member) per part for the slow VLM judges; each part has its own score and meta files;
 - images are decoded in threads while the model works on the previous batch;
 - a result that failed inside a batch (no score, a score that is not finite, or an answer that could not be
   parsed) is scored again alone: float16 batches with padding can give a broken output ("!!!!" from a VLM, an
   overflow) that the same input alone does not. A score that is still not finite is written as null.
-<model>.meta.json records the device, the time per edit and the totals.
+<model>[.part-I-of-N].meta.json records the device, the time per edit and the totals.
 
 Latency (../latency.py): right after loading, the runner times `latency_pairs` requests, each the two edits of one
 test pair in one `score` call, the way one user request would be answered (<model>.latency.json, once per model;
@@ -36,6 +37,7 @@ from ...common.device import check_heavy_run, pick_device
 from ...common.io import append_jsonl, iter_jsonl, write_json
 from ...paths import SAMPLES_DIR, SCORER_DIR
 from ..data import load_pairs, sample_order
+from ..embed import part_suffix
 from ..latency import WARMUP_PAIRS, gpu_peak_gb, latency_pairs, reset_gpu_peak, time_requests, timing_summary
 
 BASELINES_DIR = SCORER_DIR / "baselines"
@@ -179,7 +181,7 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
     if not shard or shard[0] == 0:
         measure_latency(model, text_kind, SMOKE_LATENCY_PAIRS if limit is not None else model.latency_pairs, device)
 
-    out = BASELINES_DIR / f"{model.name}{f'.part-{shard[0]}-of-{shard[1]}' if shard else ''}.jsonl"
+    out = BASELINES_DIR / f"{model.name}{part_suffix(shard)}.jsonl"
     batches = [todo[start:start + model.batch_size] for start in range(0, len(todo), model.batch_size)]
     started, scored, failed, unparsed, retried = time.monotonic(), 0, 0, 0, 0
     last_print = started
@@ -211,7 +213,7 @@ def run(model: RewardModel, split: str = "test", text_kind: str = "instruction",
                       f"{1 / rate:.2f} s/edit, about {(len(todo) - scored) / rate / 3600:.1f} h left; "
                       f"retried alone {retried}, no score {failed}, unparsed {unparsed}", flush=True)
     seconds = time.monotonic() - started
-    meta_path = BASELINES_DIR / f"{model.name}.meta.json"
+    meta_path = BASELINES_DIR / f"{model.name}{part_suffix(shard)}.meta.json"
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"edits_scored": 0, "seconds": 0.0}
     for key, count in (("retried_alone", retried), ("without_score", failed), ("unparsed", unparsed)):
         meta[key] = meta.get(key, 0) + count

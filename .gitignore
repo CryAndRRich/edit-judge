@@ -28,3 +28,6 @@ __pycache__/
 
 # Work folder: everything used to build data/ and every stage output (names, provenance, photos). Never commit.
 work/
+
+# Tests (unittest on synthetic data): kept on the coordinator's computer only, not in the repository
+tests/

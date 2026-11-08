@@ -3,7 +3,9 @@ of the test split from (original image, text, edited image); see base.py for the
 name -> "module:Class"; modules are imported only when a model is used.
 
 `run_all` runs several of them one after the other, each in its own process and Python environment (their
-libraries pin conflicting versions), sharing one time budget, and prints their output as it comes.
+libraries pin conflicting versions), sharing one time budget, and prints their output as it comes. With
+`shard=(i, n)` every model scores only its i-th of n parts of the edits, so a model too slow for one Kaggle
+session is split between sessions (team members) that run side by side.
 """
 
 import importlib
@@ -44,9 +46,11 @@ def stream(command: list[str]) -> int:
 
 
 def run_all(models: list[str], split: str = "test", text_kind: str = "instruction", max_hours: float = 10.0,
-            limit: int | None = None) -> dict:
+            limit: int | None = None, shard: tuple[int, int] | None = None) -> dict:
     """Each model in its own environment and process, in order, until `max_hours` have passed. The summary
-    (work/scorer/baselines/summary.json) says, per model, how many edits are scored and how many are left."""
+    (work/scorer/baselines/summary-<models>[.part-I-of-N].json) says, per model, how many edits of this part are
+    scored and how many are left."""
+    from ..embed import part_suffix
     from .base import edit_items, scored_ids
 
     started = time.monotonic()
@@ -73,13 +77,16 @@ def run_all(models: list[str], split: str = "test", text_kind: str = "instructio
         log_progress(f"start {name} ({hours_left:.2f} h left, {free:.0f} GB free on disk)")
         command = [python, "-u", "-m", "src.scorer", "reward", "--model", name, "--split", split, "--text", text_kind,
                    "--max-hours", f"{hours_left:.3f}"] + (["--limit", str(limit)] if limit else [])
+        command += ["--shard", f"{shard[0]}/{shard[1]}"] if shard else []
         exit_codes[name] = stream(command)
         log_progress(f"{'done' if exit_codes[name] == 0 else 'FAILED'} {name}")
-    wanted = {item.image_id for item in edit_items(split, text_kind)}
+    items = edit_items(split, text_kind)
+    wanted = {item.image_id for item in (items[shard[0]::shard[1]] if shard else items)}
     status = {name: {"scored": len(scored_ids(name) & wanted), "left": len(wanted - scored_ids(name)),
                      "exit_code": exit_codes.get(name)} for name in models}
-    summary = {"split": split, "text": text_kind, "edits": len(wanted), "models": status,
+    summary = {"split": split, "text": text_kind, "shard": "%d/%d" % shard if shard else None,
+               "edits": len(wanted), "models": status,
                "complete": all(entry["left"] == 0 for entry in status.values()),
                "hours": round((time.monotonic() - started) / 3600, 2)}
-    write_json(SCORER_DIR / "baselines" / "summary.json", summary)
+    write_json(SCORER_DIR / "baselines" / f"summary-{'-'.join(models)}{part_suffix(shard)}.json", summary)
     return summary
