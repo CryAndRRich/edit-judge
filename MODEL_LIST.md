@@ -1,0 +1,239 @@
+# Editing models to run
+
+These are the image editing models we run for the model ranking (Part II Step 7 in `../docs/PROJECT.md`). Our scorer then judges their outputs.
+
+There are 7 lists:
+- one shared list of generalist models, which follow any instruction;
+- one list for each of the 6 tasks that have specialist models.
+
+The tasks Open-Ended and Other use the shared list only. A grounding step makes the masks that some specialists need.
+
+Every model below was checked on 2026-11-17 against its Hugging Face API file list, its model card and its GitHub repository. Each model had its own check. Nothing has been run yet, so the first smoke run of each model is still the real test.
+
+## Summary
+
+The **Date** column is:
+- the conference and year, for a model whose paper a conference accepted;
+- otherwise the month and year of its Hugging Face release;
+- otherwise "arXiv" and the year.
+
+Conference acceptances come from the authors' README or arXiv page. The conference sites blocked automated reads, so they were not cross-checked.
+
+| Model | Date | Tasks (list numbers) |
+|---|---|---|
+| FLUX 3 Image Klein | 10/2026 | 1 Shared |
+| VAREdit 2B | ICLR 2026 | 1 Shared |
+| ObjectClear | CVPR 2026 | 2 Remove |
+| VOSR 2.0 | CVPR 2026 | 4 Enhance, 5 Restore |
+| AceTone | CVPR 2026 | 4 Enhance (also whole-image tone in 6 Change-Color) |
+| FLUX.2 [klein] 4B | 01/2026 | 1 Shared |
+| VIBE | 12/2025 | 1 Shared |
+| OmniGen2 | 06/2025 | 1 Shared |
+| RealEdit | CVPR 2025 | 1 Shared (classic) |
+| RORem | CVPR 2025 | 2 Remove |
+| HVI-CIDNet | CVPR 2025 | 4 Enhance |
+| BEN2 | 01/2025 | 7 Image-Formatting |
+| InstantIR | 10/2024 | 5 Restore |
+| InstructIR | ECCV 2024 | 4 Enhance |
+| BiRefNet | 07/2024 | 7 Image-Formatting |
+| MagicBrush | NeurIPS 2023 | 1 Shared (classic) |
+| SDXL Inpainting 0.1 | 09/2023 | 3 Add/Replace, 6 Change-Color (one region), 7 Image-Formatting (outpainting) |
+| DDColor | ICCV 2023 | 6 Change-Color |
+| InstructPix2Pix | CVPR 2023 | 1 Shared (classic) |
+| CodeFormer | NeurIPS 2022 | 5 Restore (classic) |
+| LaMa (big-lama) | WACV 2022 | 2 Remove (classic) |
+| Real-ESRGAN x4plus | ICCV 2021 (workshop) | 4 Enhance, 7 Image-Formatting (classic) |
+| GFPGAN v1.4 | CVPR 2021 | 5 Restore (classic) |
+| Grounding DINO base | ECCV 2024 | Masks for lists 2, 3, 6 and 7 |
+| SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3, 6 and 7 |
+
+That is 23 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
+
+## Rules
+
+**Open weights only.** No paid closed-source APIs.
+
+**Hardware: Kaggle, 2 x T4.**
+- Each GPU has 16 GB (about 15 GB usable), so 32 GB in total.
+- fp16 only: T4 has no fast bf16. Most new weights are stored in bf16 and must be cast to fp16 at load. Some code hard-codes bf16 or flash-attention-2; the notes say where to patch it (fp16, and `sdpa` attention).
+- FLUX models can give black or NaN images in fp16. If that happens, keep the VAE in fp32.
+- A model is kept when its weights in fp16 fit in one T4, or split over the two:
+  - text encoder on GPU 0, main network on GPU 1;
+  - or diffusers `device_map="balanced"`.
+
+**Preference.** New, light, and published at a good conference. Each list also keeps one or two classic models as baselines.
+
+**No Stable Diffusion 2.1.** Its official Hugging Face repository was removed, so models built on it are left out.
+
+**Columns of the lists:**
+- **Weights (fp16):** the size of the weights the model loads, in GB, computed from the file sizes in the Hugging Face API. It does not count activations.
+- **Effort:**
+  - **easy:** a standard diffusers or transformers class, or a pip package;
+  - **medium:** clone the GitHub repository and use its code, patch it, or pin old packages in their own venv (see `src/common/envs.py`).
+- **Source:** `hf:` is a Hugging Face repository, `gh:` a GitHub repository.
+
+**Settings.** Use the steps and guidance given here, from each model card, unless the smoke run shows a problem.
+
+## 1. Shared list (generalists)
+
+Every model here runs on every sample of the benchmark set.
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| FLUX 3 Image Klein | 10/2026 | hf:black-forest-labs/flux-3-image-klein | 20.3 (transformer 11.10, text encoder 8.88, VAE 0.34) | FLUX Kommunity license, gated | medium | Accept the license on the page and use an HF token. The card and the pipeline class are hidden until access is granted, so read them first. Download only `transformer/`, `text_encoder/`, `vae/` (`allow_patterns`): the whole repository is 43 GB. Split over the 2 GPUs. |
+| VAREdit 2B | ICLR 2026 | hf:HiDream-ai/VAREdit (`2B-512.pth`, `flan-t5-xl/`), gh:HiDream-ai/VAREdit; VAE `infinity_vae_d32reg.pth` from hf:FoundationVision/Infinity | about 11.7 (model 4.4, flan-t5-xl 5.7, VAE 1.6); the files are fp32: 8.8 + 11.4 + 1.6 GB to download | MIT | medium | Visual autoregressive, not diffusion, so it is fast. 512 x 512 only (the input is padded to a square). `infer.py`: `load_model(..., model_size="2B", image_size=512)`, then `generate_image(...)` with cfg 3.0, tau 0.1 (from the README table; the code defaults differ). The code hard-codes bf16 autocast in several places: patch to fp16. One GPU. |
+| FLUX.2 [klein] 4B | 01/2026 | hf:black-forest-labs/FLUX.2-klein-4B | 16.0 (transformer 7.75, text encoder 8.04, VAE 0.17) | Apache 2.0 | easy | `Flux2KleinPipeline`, diffusers from GitHub main; 4 steps, guidance 1.0. Split the text encoder and transformer over the 2 GPUs. The card's example is text-to-image only: check the name of the input-image argument in the pipeline source. |
+| VIBE | 12/2025 (arXiv 2601.02242) | hf:iitolstykh/VIBE-Image-Edit, gh:ai-forever/VIBE | 9.3 (Sana1.5 1.6B 3.8, Qwen3-VL-2B 4.3, VAE 1.2) | code Apache 2.0, model under the SANA license | medium | Fits one T4. `vibe` package from GitHub, `ImageEditor(...)`, 20 steps, guidance 4.5, image guidance 1.2. The code hard-codes bf16: patch `weight_dtype` to fp16. Pins torch 2.6, diffusers 0.33.1, transformers 4.57.1, so use its own venv. |
+| OmniGen2 | 06/2025 | hf:OmniGen2/OmniGen2, gh:VectorSpaceLab/OmniGen2 | about 15.1 (transformer 7.9, Qwen2.5-VL 7.0); stored in fp32, 30 GB to download | Apache 2.0 | medium | Repository script `inference.py` (diffusers support is not done). torch 2.6 pin, so use its own venv. No flash-attn on T4. 50 steps, text guidance 5.0, image guidance 2.0 (the card says 1.2-2.0 for editing). Needs CPU offload or a split over the 2 GPUs. |
+| *Classic:* RealEdit | CVPR 2025 | hf:peter-sushko/RealEdit | about 2.2 (.bin, fp32 on disk) | card: CC; GitHub: MIT | easy | `StableDiffusionInstructPix2PixPipeline`, `safety_checker=None`, Euler Ancestral scheduler, 50 steps, image guidance 2 (card example). InstructPix2Pix fine-tuned on RealEdit, the source of 92% of our samples. |
+| *Classic:* MagicBrush | NeurIPS 2023 | hf:vinesmsuic/magicbrush-jul7 | about 2.2 (.bin) | CreativeML OpenRAIL-M | easy | Community diffusers port of the authors' checkpoint (osunlp/InstructPix2Pix-MagicBrush, .ckpt only). Same pipeline, 20 steps, guidance 7, image guidance 1.5. |
+| *Classic:* InstructPix2Pix | CVPR 2023 | hf:timbrooks/instruct-pix2pix | 2.7 | MIT | easy | `StableDiffusionInstructPix2PixPipeline` with `variant="fp16"` (otherwise the fp32 files are downloaded). Pipeline defaults: 100 steps, guidance 7.5, image guidance 1.5. |
+
+**This list is short.** Most new open generalists are 30-58 GB in fp16 and do not fit 2 T4s without quantization (see "Left out"). Of the new ones that fit, only VAREdit 2B has a conference paper.
+
+## 2. Remove (objects, people, text, logos)
+
+All of these need a mask (see Grounding).
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| ObjectClear | CVPR 2026 | hf:jixin0101/ObjectClear, gh:zjx0101/ObjectClear | 7.8 | S-Lab, non-commercial | medium | Custom `ObjectClearPipeline` from the GitHub package; `--use_fp16`; shorter side 512, 20 steps, guidance 2.5. Also removes shadows and reflections. The HF weights date from 2025-07; the paper was renamed for CVPR 2026. |
+| RORem | CVPR 2025 | hf:LetsThink/RORem | 6.9 | Apache 2.0 | easy | `AutoPipelineForInpainting` (an SDXL inpainting pipeline); 512 x 512, 50 steps, strength 0.99, guidance 1.0. The card's code has bugs: write the call yourself. The repository's pins (diffusers 0.30) are only needed for training. |
+| *Classic:* LaMa (big-lama) | WACV 2022 | TorchScript `big-lama.pt` from gh:enesmsahin/simple-lama-inpainting, release v0.1.0 | 0.2 | Apache 2.0 | easy | Load with `torch.jit.load`, without the pip package, whose pins (numpy < 2, pillow < 10) clash with Kaggle. White in the mask = fill. The output is padded to a multiple of 8: crop it back. |
+
+**Remove Background** (1,193 samples) often asks for a plain or white background. The cut-out models of list 7 also run on these samples.
+
+## 3. Add and Replace (new objects, people, clothes, backgrounds)
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| SDXL Inpainting 0.1 | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ (card: research use) | easy | `AutoPipelineForInpainting`, `variant="fp16"`; 1024 x 1024, 20 steps, guidance 8.0, strength 0.99 (the card says 1.0 lowers quality). White in the mask = repaint. For Add, the mask is the box where the new object goes. |
+
+**This list has one specialist on purpose.**
+- The insertion models at good conferences in 2025 are LoRAs on 12B FLUX: OmniPaint (ICCV 2025) and ICEdit (NeurIPS 2025). Each is about 34 GB in fp16.
+- The older ones (PowerPaint, BrushNet) are Gradio-only, with old pins.
+- So the shared list does most of the work for Add and Replace. This list checks whether a mask helps.
+
+## 4. Enhance (quality, sharpness, lighting, colour tone, retouching)
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| VOSR 2.0 | CVPR 2026 | hf:CSWRY/VOSR (`VOSR2/`, `Qwen-Image-vae-2d/`, `torch_cache/`), gh:cswry/VOSR | about 7.0 in fp32 (DiT 1.4B 5.6, DINOv2-L 1.2, VAE 0.2) | Apache 2.0 | medium | One-step generative super-resolution. VOSR 2.0 does not use SD 2.1 (only the older 0.5B models do). `inference_vosr_onestep.py -c preset/ckpts/VOSR2 -u 1` for sharpening without upscaling (the code allows 1; the README only shows 4). Runs in fp32 (no dtype flag); use `--tile_size 512` for large photos. Run from the repository root (relative paths). Bad images are skipped silently: count the outputs. |
+| AceTone | CVPR 2026 | hf:Vivre/AceTone-3B-PST-Preview, gh:martian422/AceTone (branch `open-source-ready`) | 8.1 (a Qwen2.5-VL-3B-type VLM) | Apache 2.0 | medium | Writes a 3D colour LUT from the instruction, then applies it. It changes global colour and tone only ("make it warmer", "vintage look"), never local content. Needs the repository's `model/` code and VQ checkpoint; write a short inference script from `demo/predict_lut.py`. Patch bf16 to fp16 and flash-attention-2 to `sdpa`. |
+| HVI-CIDNet | CVPR 2025 | hf:Fediory/HVI-CIDNet-Generalization, gh:Fediory/HVI-CIDNet | 0.008 (1.9M parameters) | MIT | easy | For dark photos. `eval_hf.py` with the "generalization" weights, which the authors recommend for real photos; `alpha_i` sets the brightness. Skip `requirements.txt` (torch 1.13). Nothing stops it from brightening a photo that is already well lit, so run it only on lighting requests. |
+| InstructIR | ECCV 2024 | hf:marcosv/InstructIR, gh:mv-lab/InstructIR | 0.06 + text encoder TaylorAI/bge-micro-v2 | MIT | medium | Needs code from the repository: `configs/eval5d.yml`, `models/`, `text/`. Handles 7 degradations named in the instruction: noise, blur, rain, haze, low light, enhancement, upscaling. The authors say it generalises poorly to real photos. |
+| *Classic:* Real-ESRGAN x4plus | ICCV 2021 (workshop) | `RealESRGAN_x4plus.pth` from gh:xinntao/Real-ESRGAN, release v0.1.0 | 0.07 | BSD-3 | easy | Load with the `spandrel` package (0.4.2, 2026). The `realesrgan` and `basicsr` packages are from 2022 and break on new torchvision. |
+
+**Enhance Person** (1,426 samples) is mostly retouching (skin, eyes, smiles). No specialist covers it, so the shared list decides this row.
+
+## 5. Restore (old, damaged or faded photos)
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| VOSR 2.0 | CVPR 2026 | as in list 4 | about 7.0 | Apache 2.0 | medium | For blurred, low-resolution and compressed photos. It does not remove scratches or tears. |
+| InstantIR | 10/2024 | hf:InstantX/InstantIR, gh:instantX-research/InstantIR | about 11-12 (SDXL base about 7, InstantIR .pt about 4, DINOv2-large 0.6) | Apache 2.0 | medium | Custom `InstantIRPipeline` from the repository. Pass `--vision_encoder_path facebook/dinov2-large` (the default is a private path). 30 steps, cfg 7.0, prompt optional, batch size 1. Old pins (diffusers 0.28, torch 2.0), so use its own venv. One T4. |
+| *Classic:* CodeFormer | NeurIPS 2022 | gh:sczhou/CodeFormer, release v0.1.0 | 0.4 + face detection models | S-Lab, non-commercial | medium | `inference_codeformer.py -w 0.7`. Bundles its own basicsr. Documented for Python 3.8, so the smoke run must confirm it works on 3.11. |
+| *Classic:* GFPGAN v1.4 | CVPR 2021 | gh:TencentARC/GFPGAN, `GFPGANv1.4.pth` in release v1.3.0 | small | Apache 2.0 (README) | medium | Restores faces; whole photos work (faces are found and pasted back), and the background is upscaled with Real-ESRGAN. `basicsr` imports `torchvision.transforms.functional_tensor`, which new torchvision removed: patch the import. |
+
+## 6. Change-Color (recolouring, colourising black-and-white photos)
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| SDXL Inpainting 0.1, one region | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | For "make the car red": mask the object and prompt with the new colour. Same settings as list 3. |
+| DDColor | ICCV 2023 | hf:piddnad/ddcolor_modelscope, gh:piddnad/DDColor | 0.9 | Apache 2.0 | medium | Use the `modelscope` checkpoint, which MODEL_ZOO.md recommends for photos outside ImageNet. Clone the repository: `DDColorHF.from_pretrained` needs its bundled basicsr on the path. Input 512; the colour is upscaled back to full size. Colourises the whole image only. |
+
+AceTone (list 4) also runs here on requests that change the colour tone of the whole photo.
+
+**No recent photo colouriser.**
+- We found no usable colourisation model for photos from 2025-2026.
+- ColorFLUX (CVPR 2026) has only unofficial weights, no inference code, and is built on 12B FLUX.
+- The other recent work at good conferences is on anime and sketches.
+
+## 7. Image-Formatting (cut-out, background removal, extend, resize, crop)
+
+| Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
+|---|---|---|---|---|---|---|
+| BEN2 (Base) | 01/2025 | hf:PramaLLC/BEN2 | 0.38 | MIT | easy | `pip install git+https://github.com/PramaLLC/BEN2.git`, then `BEN_Base.from_pretrained("PramaLLC/BEN2")` and `model.inference(image)`. The two READMEs give different APIs: check in the smoke run. |
+| BiRefNet | 07/2024 (journal CAAI AIR 2024) | hf:ZhengPeng7/BiRefNet | 0.44 | MIT | easy | `AutoModelForImageSegmentation`, `trust_remote_code=True`, `.half()`; resize to 1024 x 1024, ImageNet normalisation. Output RGBA, or composite on white. Skip the repository's `torch==2.5.1` pin. |
+| SDXL Inpainting 0.1, outpainting | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | Our own padding: enlarge the canvas, mask the new border. The card does not document this use. |
+| *Classic:* Real-ESRGAN x4plus | ICCV 2021 (workshop) | as in list 4 | 0.07 | BSD-3 | easy | For "make it bigger". |
+| *Classic:* plain code | | PIL | | | easy | Crop, resize, rotate, change format. Sometimes the right answer. |
+
+## Grounding (masks for lists 2, 3, 6 and 7)
+
+| Tool | Date | Source | Weights | License | Notes |
+|---|---|---|---|---|---|
+| Grounding DINO base | ECCV 2024 | hf:IDEA-Research/grounding-dino-base | 0.9 GB (fp32) | Apache 2.0 | `AutoModelForZeroShotObjectDetection`. The text must be lowercase and end with a dot ("the man on the left."). Box threshold 0.4, text threshold 0.3. The argument name changed across transformers versions (`box_threshold` or `threshold`). |
+| SAM 2.1 large | ICLR 2025 | hf:facebook/sam2.1-hiera-large | 0.9 GB (fp32) | Apache 2.0 | `Sam2Model` and `Sam2Processor`, with the Grounding DINO boxes as `input_boxes`, `multimask_output=False`. The card's example uses bf16: use fp16 or fp32 on T4. |
+
+**How the masks are made:**
+1. The target phrase comes from the instruction.
+2. Grounding DINO finds its box, and SAM 2.1 turns the box into a mask. For Add, where there is nothing to find yet, Qwen2.5-VL-7B gives the box instead.
+3. Every mask is saved, so a bad mask can be told apart from a bad edit.
+4. If nothing is found, the sample is recorded as `no-mask`.
+
+## Left out
+
+| Model | Date | Why |
+|---|---|---|
+| DIM-4.6B-Edit | ICLR 2026 | Its demo sends every instruction to GPT-4o (a paid API) first; bf16 and flash-attention-2 hard-coded; non-commercial |
+| VAREdit 8B | ICLR 2026 | 33.5 GB in fp32 (about 17 GB in fp16), more than one T4; single-GPU code |
+| NP-Edit ("Learning an Image Editing Model without Image Editing Pairs") | ICLR 2026 | Only an unofficial reimplementation on Z-Image 6B: 20.5 GB on one GPU, flash-attn 4, tested on H200 |
+| InstantRetouch | CVPR 2026 | Code only, no weights (you would have to train it) |
+| RDBM | CVPR 2026 | Training code only, no weights, no inference script |
+| ColorFLUX | CVPR 2026 | Unofficial upload of weights, no inference code; built on FLUX.1 [dev] (about 41 GB to download), non-commercial |
+| ICEdit | NeurIPS 2025 | A LoRA on FLUX.1 Fill [dev]: 33.9 GB in fp16, bf16-only script, non-commercial, gated base |
+| OmniPaint | ICCV 2025 | LoRAs on FLUX.1 [dev]: 33.7 GB; insertion needs a reference image of the object, not text |
+| PiSA-SR | CVPR 2025 | Built on Stable Diffusion 2.1, whose official Hugging Face repository was removed; only unofficial mirrors remain |
+| HYPIR | SIGGRAPH 2025 | Built on Stable Diffusion 2.1; non-commercial |
+| OSDFace | CVPR 2025 | Built on Stable Diffusion 2.1; aligned 512 px faces only (no detection or paste-back); weights only on Google Drive; non-commercial |
+| SmartEraser | CVPR 2025 | Weights only on Baidu and Google Drive; custom pipeline on diffusers 0.30 and Gradio 3; RORem and ObjectClear cover removal |
+| DarkIR | CVPR 2025 | Script hard-codes `CUDA_VISIBLE_DEVICES="1"`; the HF weights do not match the shipped config; HVI-CIDNet covers low light |
+| FLUX.2 [klein] 9B | 01/2026 | 34.7 GB in fp16 (transformer 18.2, text encoder 16.4); gated, non-commercial. Possible later with 8-bit weights |
+| Qwen-Image-2.1 (also Turbo) | 09/2026 | 33.1 GB; needs transformers >= 5.17; examples at 2048 px |
+| FireRed-Image-Edit 1.0 / 1.1 | 02/2026 | 57.7 GB (transformer 40.9, text encoder 16.6); its own "optimized" Int8 path still needs 30 GB |
+| LLaDA-Image (and Turbo) | 08/2026 | 49.2 GB; its text encoder alone is 32.7 GB |
+| Z-Image-Edit | arXiv 2025 | Weights not released (README: "to be released") |
+| LongCat-Image-Edit | 12/2025 | 29.3 GB; its 16.6 GB text encoder does not fit in one T4 |
+| HiDream-O1-Image (and Dev) | 05/2026 | 8.8B stored in fp32 (35 GB download), 17.6 GB in fp16; custom script, torch >= 2.10, flash-attn on by default |
+| Qwen-Image-Edit-2511, Step1X-Edit v1.2, FLUX.1 Kontext and Fill, RealRestorer, OmniEraser | 2024-2026 | 33-54 GB in fp16 |
+| MiniMax H3-Image, HunyuanImage 3.0 | 2026 | Own serving library, or far too large |
+| PowerPaint v2, BrushNet | ECCV 2024 | Gradio-only code with old pins (diffusers 0.27, transformers 4.28, Python 3.9), or community weights only |
+| IC-Light | 05/2024 | Removes the photo's background before relighting (RMBG step) and regenerates the content; Gradio-only, old pins |
+| Bringing Old Photos Back to Life | CVPR 2020 | Archived; needs a dlib build and Synchronized-BatchNorm copies |
+| DeOldify | 2019 | Archived; fastai 1.0.60 and torch 1.11 do not run on Python 3.11 |
+| ControlNet Recolor (SDXL) | 2024 | Only a community conversion, no license stated; colourises the whole image only, as DDColor does |
+| Training-free methods | | Left out by choice |
+
+## How to run (summary)
+
+**Samples.**
+- About 30 samples per task from the dev split, fixed seed, about 240 in total.
+- Generalists run on all of them. A specialist runs only on its task's samples.
+
+**Inputs.**
+- The same `instruction` for every model.
+- The original image is resized to a long side of 1024 px, or to the model's own size where the list says so.
+- Seed 0.
+
+**Outputs.**
+- Images go to `work/editors/<model>/<sample id>.png`.
+- Masks go to `work/editors/masks/<sample id>.png`.
+- One line per sample goes to `work/editors/<model>/runs.jsonl`: status (`ok`, `failed`, `no-mask`), seconds per image, peak GPU memory, settings.
+
+**Order of work.**
+1. Smoke run on 5 samples: it loads in fp16, fits, gives no black images, and gives seconds per image.
+2. Full run. Every Kaggle run needs the coordinator's approval first.
+3. Scoring with our scorer.
+
+**Kaggle notes.**
+- Turn internet on, and add an HF token as a secret for gated models.
+- Large downloads: keep the Hugging Face cache outside `/kaggle/working`, which has a size limit.
+- Pickle weights (`.bin`, `.pt`, `.pth`, `.pkl`) come only from the sources listed here.
+- Models with old pins get their own venv, as the filters and scorer baselines already do.
+
+**Never publish outputs of samples that show identifiable people.**
+
+| Model | Member | Smoke | Full run |
+|---|---|---|---|
+| | | | |

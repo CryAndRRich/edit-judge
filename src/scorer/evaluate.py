@@ -10,7 +10,7 @@ Metrics for any score per edit (higher = better), on the pairs of one split:
 `paired_difference` compares two scorers on the same pairs: the accuracy difference with a 95% bootstrap interval
 over samples. It is the test for "model A is better than model B"; two separate intervals that overlap are not.
 
-Baselines, all without training on our labels:
+Baselines, all zero-shot (none uses our labels):
 - similarity: the cosine between the edit and the text in the space of a dual encoder (embed.py): CLIP-score
   (CLIP ViT-L/14), PickScore, SigLIP and HPSv2.1;
 - reward models and VLM judges scored per edit by src/scorer/rewards (ImageReward, EditReward, Qwen2.5-VL judge,

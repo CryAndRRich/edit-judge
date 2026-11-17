@@ -3,13 +3,13 @@
 Needs only small files, so it runs on a laptop after the Kaggle runs: runs/<name>/metrics.json and scores.jsonl,
 baselines/*.jsonl (per-edit scores) and baselines.json (human ceiling).
 
-- Trained runs: dev and test accuracy of the ensemble over seeds, with the mean and deviation of the single heads.
+- Our runs: dev and test accuracy of the ensemble over seeds, with the mean and deviation of the single heads.
   Exactly one run is "selected": the best ensemble on dev. The others are listed for comparison; test results
   must never be used to choose.
 - Baselines: dev and test accuracy on the pairs they scored (the reward models score the test split only).
 - Paired differences on the test split: the selected run minus each baseline, on the pairs both scored, with a
   95% bootstrap interval over samples. An interval above 0 means the selected run is better.
-- Latency of one request (two edits of a pair, latency.py), next to the test accuracy: latency.json (trained runs,
+- Latency of one request (two edits of a pair, latency.py), next to the test accuracy: latency.json (our runs,
   similarity baselines) and baselines/<model>.latency.json (reward models, VLM judges).
 """
 
@@ -31,7 +31,7 @@ def run_scores(name: str) -> dict[str, float]:
 
 
 def load_latencies() -> dict[str, dict]:
-    """Name -> latency of every trained run and baseline that was timed."""
+    """Name -> latency of every run and baseline that was timed."""
     scorer = load_latency(LATENCY_FILE)
     latencies = {**scorer.get("runs", {}), **scorer.get("baselines", {})}
     for path in sorted(BASELINES_DIR.glob("*.latency.json")):
@@ -50,7 +50,7 @@ def report(version: str = "all") -> dict:
     baselines = {name: evaluate_scores(scores, pairs, rankings) for name, scores in baseline_scores().items()}
     selected = max(runs, key=lambda run: run["ensemble"]["dev"]["accuracy"] or 0)["name"] if runs else None
 
-    lines = ["## Trained runs (ensemble over seeds; seed mean +- sd in brackets)", "",
+    lines = ["## Our scorer runs (ensemble over seeds; seed mean +- sd in brackets)", "",
              "| run | status | dev | test (95% CI) | test seeds | test confident | test top-1 | best epochs |",
              "|---|---|---|---|---|---|---|---|"]
     for run in sorted(runs, key=lambda run: -(run["ensemble"]["dev"]["accuracy"] or 0)):
@@ -59,7 +59,7 @@ def report(version: str = "all") -> dict:
                      f"{dev['accuracy']} | {interval(test)} | {seeds['test_mean']} +- {seeds['test_sd']} | "
                      f"{test['confident_accuracy']} | {test['top1']} (chance {test['top1_chance']}) | "
                      f"{[row['best_epoch'] for row in run['seeds']]} |")
-    lines += ["", "## Baselines (no training on our labels)", "",
+    lines += ["", "## Zero-shot baselines (none uses our labels)", "",
               "| baseline | dev | test (95% CI) | test pairs | test confident | test top-1 |",
               "|---|---|---|---|---|---|"]
     for name, result in sorted(baselines.items(), key=lambda item: -(item[1]["test"]["accuracy"] or 0)):
@@ -87,7 +87,7 @@ def report(version: str = "all") -> dict:
                   "|---|---|---|---|---|---|---|"]
         run_names = {run["name"] for run in runs}
         for name, latency in sorted(latencies.items(), key=lambda item: item[1]["median_ms"]):
-            lines.append(f"| {name} | {'trained run' if name in run_names else 'baseline'} | {latency['median_ms']} | "
+            lines.append(f"| {name} | {'our run' if name in run_names else 'zero-shot'} | {latency['median_ms']} | "
                          f"{latency['p90_ms']} | {latency.get('peak_gpu_memory_gb')} | "
                          f"{latency.get('gpu') or latency.get('device')} | {accuracy.get(name, '-')} |")
 
