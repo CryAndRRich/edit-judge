@@ -5,16 +5,26 @@
 - add_replace: a category "Add <subject>" or "Replace <subject>", half of each.
 
 A request that also has a category of the other task (e.g. "Remove Person" and "Add Person") is left out, so a
-sample belongs to one task only and its plan and mask are unambiguous. Requests with a single category come first (a request that also asks for other changes cannot be done by one
+sample belongs to one task only and its plan and mask are unambiguous. So are requests an inpainting step cannot
+answer, found by words of the simplified instruction (the smoke run of 2026-11-20 showed each kind):
+- humorous requests (RealEdit's "humorous", with or without a full stop);
+- remove: cut-outs ("cut out the bear ... transparent background" keeps the bear: list 7's job) and retouching
+  ("discoloration", "sweat", "acne": no object to segment, and SAM then masks the whole shirt or face);
+- add_replace: changes of shape or size ("make my cat longer"), which no mask expresses.
+Add and Replace requests whose subject is Background get the op "background": the subject is kept and everything
+else is repainted (grounding.py inverts its mask).
+
+Requests with a single category come first (a request that also asks for other changes cannot be done by one
 inpainting step), then the rest. Within that, samples are dealt round-robin over the subjects (Person,
 Text/Patterns, ...), each subject in the fixed order of scorer/data.py:sample_order, so a small set still covers
 many kinds of target and the first 5 (the smoke run) already differ. Only dev samples are used: the scorer chose
 its run on dev but never trained on it, and test stays untouched.
 
 Output: work/editors/samples/<task>.jsonl, one line per sample in run order:
-{"id", "op" (remove | add | replace), "category", "categories", "instruction", "request"}.
+{"id", "op" (remove | add | replace | background), "category", "categories", "instruction", "request"}.
 """
 
+import re
 from collections import defaultdict
 
 from ..common.dataset import text_of
@@ -25,6 +35,13 @@ from ..scorer.data import sample_order, split_of
 DEFAULT_SIZE = 30
 EXCLUDED = {"Remove Background"}
 OPERATIONS = {"remove": ("Remove",), "add_replace": ("Add", "Replace")}
+UNSUITABLE = {
+    "remove": ("cut out", "cutout", "cut-out", "transparent", "isolate", "extract", "png",
+               "discolor", "discolour", "stain", "sweat", "acne", "blemish", "pimple", "wrinkle", "shine", "glare",
+               "red eye", "red-eye", "redness", "dark circle", "bags under", "spots on", "skin"),
+    "add_replace": ("longer", "shorter", "bigger", "larger", "smaller", "taller", "wider", "thinner", "slimmer",
+                    "move", "resize", "stretch"),
+}
 OTHER_TASKS = {operation: {other for task, ops in OPERATIONS.items() if operation not in ops for other in ops}
                for ops in OPERATIONS.values() for operation in ops}     # Remove -> {Add, Replace}, ...
 
@@ -69,8 +86,12 @@ def candidates(requests: dict[str, dict], operation: str) -> list[tuple[str, str
         if split_of(sample_id) != "dev":
             continue
         categories = requests[sample_id]["categories"]
-        if (requests[sample_id]["instruction"] or "").strip().lower() == "humorous":
+        instruction = " ".join((requests[sample_id]["instruction"] or "").lower().split())
+        if re.sub(r"[^a-z]", "", instruction) == "humorous":
             continue
+        task = next(task for task, ops in OPERATIONS.items() if operation in ops)
+        if any(re.search(rf"\b{re.escape(word)}", instruction) for word in UNSUITABLE[task]):
+            continue                                  # words match at a word start: "move" never matches "remove"
         if any(c.split(" ")[0] in OTHER_TASKS[operation] for c in categories):
             continue                                  # a sample belongs to one task only (plans, masks by ID)
         matching = [c for c in categories if c.split(" ")[0] == operation and c not in EXCLUDED]
@@ -109,7 +130,8 @@ def select(task: str, size: int = DEFAULT_SIZE) -> list[dict]:
     rows = []
     for sample_id, category, operation in chosen:
         request = requests[sample_id]
-        rows.append({"id": sample_id, "op": operation.lower(), "category": category,
+        op = "background" if category.endswith(" Background") and operation != "Remove" else operation.lower()
+        rows.append({"id": sample_id, "op": op, "category": category,
                      "categories": request["categories"],
                      "instruction": text_of({**request, "id": sample_id}, "instruction"),
                      "request": request["request"]})

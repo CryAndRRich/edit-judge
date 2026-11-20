@@ -4,12 +4,14 @@ This package covers the inpainting lists of MODEL_LIST.md so far: list 2 (Remove
 model there edits (image, mask), so a run has four steps, each resumable and each writing to work/editors/:
 
 1. samples (samples.py): a small fixed set of dev samples per task, chosen by their request categories;
-2. plan (plan.py): Qwen2.5-VL-7B reads each request and says what to find (Remove, Replace), where to put the new
-   thing (Add) and what to paint (Add, Replace);
-3. masks (grounding.py): Grounding DINO finds the targets, SAM 2.1 turns the boxes into masks (Add: the box of the
-   plan); every mask is saved, so a bad mask can be told apart from a bad edit;
+2. plan (plan.py): Qwen2.5-VL-7B reads each request and names what to find, with its own box (remove, replace;
+   background: the subjects to keep), where to put the new thing (add) and what to paint;
+3. masks (grounding.py): Grounding DINO's boxes inside Qwen's box (Qwen's box when DINO finds none), SAM 2.1
+   masks (add: the plan's box; background: inverted); every mask is saved, so a bad mask can be told apart from a
+   bad edit;
 4. run (base.py): every model of the task on every sample, each model in its own process (and its own Python
-   environment when it needs one); then score.py and report.py judge the outputs with the scorer.
+   environment when it needs one); only the masked region of an output is kept (pasted back on the original);
+   then score.py and report.py judge the outputs with the scorer.
 
 Register each editor as name -> "module:Class" (module relative to this package); modules are imported only when an
 editor is used, so torch loads only then. To add one, subclass base.Editor in its own file in models/ and register

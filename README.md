@@ -537,16 +537,22 @@ python -m src.editors report --task remove           # work/editors/remove/repor
 ```
 
 - **Samples** (`samples.py`): dev samples only, single-category requests first, dealt round-robin over subjects so
-  the first 5 (the smoke run) already differ. `add_replace` is half Add, half Replace. "Remove Background" is left
-  out (list 7's cut-out models handle it), and so is a sample that also has a category of the other task.
-- **Plans** (`plan.py`, `prompts/plan_v1.txt`): targets for Grounding DINO, a box for Add (Qwen2.5-VL answers in
-  pixels of its resized image; mapped back here), and the inpainting prompt. Answers with problems are recorded.
-- **Masks** (`grounding.py`): the best box per target phrase, SAM 2.1 masks, their union, grown by 15 px (remove)
-  or 8 px (replace); a sample where nothing is found is `no-mask`. Masks are saved, so a bad mask can be told
-  apart from a bad edit.
+  the first 5 (the smoke run) already differ. `add_replace` is half Add, half Replace; Add/Replace Background get
+  the op `background`. Left out: "Remove Background" (list 7), samples with a category of the other task, humorous
+  requests, and requests one inpainting step cannot answer (cut-outs and retouching for remove, changes of size
+  or shape for add_replace; word lists in `UNSUITABLE`).
+- **Plans** (`plan.py`, `prompts/plan_v2.txt`): Qwen2.5-VL-7B names each target with its own box, gives the box
+  for Add and the inpainting prompt. Its boxes are in pixels of the image it saw, which is read from the
+  processor (`image_grid_thw`): the model's config overrides the client's pixel limit, so plan_v1's mapping was
+  wrong (smoke run, 2026-11-20). Answers with problems are recorded.
+- **Masks** (`grounding.py`): Grounding DINO's boxes that lie in Qwen's box for the target (so "the letters DB"
+  keeps both), Qwen's box when DINO finds none there, then SAM 2.1 and their union; grown by 15 px (remove) or
+  8 px (replace); for `background` the subjects' mask is inverted. A sample where nothing is found is `no-mask`.
+  Masks record their plan version, and a mask or an output of an older plan version is made again.
 - **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`) in its own
   file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. Outputs are resized back to
-  the original size. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
+  the original size, and only the masked region is kept (pasted back on the original over a 3 px soft edge), so
+  models working at 512 px are not judged on a resampled photo. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
 - **Scores and report** (`score.py`, `report.py`): every output is scored together with the human edits of its
   sample. The scorer learned from human edits, so AI outputs are another domain: check the contact sheets. With 30
   samples the shares have wide intervals.

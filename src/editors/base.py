@@ -5,6 +5,11 @@ the sample (L, 255 = repaint; grounding.py) and the inpainting prompt of the pla
 Each editor resizes to its own working size (MODEL_LIST.md's settings); the runner resizes the output back to the
 original size, so every output can be compared with the original and with the human edits pixel for pixel.
 
+Paste-back (PASTE_BACK, on for every model): only the masked region of the output is kept, blended into the original
+over a FEATHER px soft edge. Models that work at 512 px (RORem, ObjectClear) would otherwise return the whole photo
+resampled and blurred, and the scorer would judge that blur rather than the edit; it also undoes the small changes
+a diffusion model's VAE makes outside the mask. The setting is recorded with every output.
+
 Output: work/editors/<model>/<sample id>.png and work/editors/<model>/runs.jsonl, one row per attempt: {"id",
 "task", "status" (ok | failed | black | no-mask), "seconds", "gpu_peak_gb", "settings", "error"}. A sample with
 status ok or no-mask is not run again; failed and black ones are tried again by the next run. "black" catches the
@@ -21,10 +26,12 @@ from ..common.device import check_heavy_run, pick_device
 from ..common.io import append_jsonl, iter_jsonl, write_json
 from ..paths import EDITORS_DIR, SAMPLES_DIR
 from .grounding import load_masks, mask_path
-from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans
+from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans, prompt_id
 from .samples import load_task_samples
 
 SEED = 0
+PASTE_BACK = True
+FEATHER = 3                 # pixels of soft edge where the edit meets the original
 FINAL = ("ok", "no-mask")
 
 
@@ -57,15 +64,24 @@ def runs_path(name: str):
     return output_dir(name) / "runs.jsonl"
 
 
-def load_runs(name: str) -> dict[str, dict]:
-    """Sample ID -> the last attempt of the model on it."""
-    return {row["id"]: row for row in iter_jsonl(runs_path(name))}
+def load_runs(name: str, version: int = DEFAULT_VERSION) -> dict[str, dict]:
+    """Sample ID -> the last attempt of the model on it with a mask of plan version `version` (outputs of an older
+    plan's masks are made again)."""
+    return {row["id"]: row for row in iter_jsonl(runs_path(name))
+            if row.get("plan", "plan_v1") == prompt_id(version)}
 
 
 def is_black(image) -> bool:
     """True for an all-black or flat image (the fp16 failure: NaN latents decode to black)."""
     low, high = zip(*image.getextrema())
     return max(high) <= 8 or all(h - l <= 2 for l, h in zip(low, high))
+
+
+def paste_back(original, edited, mask):
+    """`edited` inside `mask` (softened by FEATHER px), `original` elsewhere; all three the same size."""
+    from PIL import Image, ImageFilter
+    soft = mask.filter(ImageFilter.GaussianBlur(FEATHER)) if FEATHER else mask
+    return Image.composite(edited, original, soft)
 
 
 def gpu_peak():
@@ -80,7 +96,7 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
     if task not in editor.tasks:
         raise SystemExit(f"{editor.name} does not run on {task} (its tasks: {', '.join(editor.tasks)})")
     samples = load_task_samples(task, limit)
-    plans, masks, runs = load_plans(client_name, version), load_masks(), load_runs(editor.name)
+    plans, masks, runs = load_plans(client_name, version), load_masks(version), load_runs(editor.name, version)
     todo = [s for s in samples if runs.get(s["id"], {}).get("status") not in FINAL]
     missing = [s["id"] for s in todo if s["id"] not in masks]
     if missing:
@@ -92,15 +108,17 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
     reset_peak, peak_gb = gpu_peak()
 
     def record(sample, status, seconds=None, peak=None, error=None):
-        append_jsonl(out, [{"id": sample["id"], "task": task, "status": status, "seconds": seconds,
-                            "gpu_peak_gb": peak, "model_id": editor.model_id, "settings": editor.settings,
+        append_jsonl(out, [{"id": sample["id"], "task": task, "plan": prompt_id(version), "status": status,
+                            "seconds": seconds,
+                            "gpu_peak_gb": peak, "model_id": editor.model_id,
+                            "settings": {**editor.settings, "paste_back": PASTE_BACK, "feather": FEATHER},
                             "error": error, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}])
 
     for sample in todo:
         if masks[sample["id"]]["status"] != "ok":
             record(sample, "no-mask")
     if not to_edit:
-        return summary(editor.name, task, samples)
+        return summary(editor.name, task, samples, version)
     started = time.monotonic()
     editor.load(device)
     load_seconds = round(time.monotonic() - started, 1)
@@ -127,21 +145,23 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
         seconds = round(time.perf_counter() - started, 2)
         if edited.size != image.size:
             edited = edited.resize(image.size, Image.Resampling.LANCZOS)
-        status = "black" if is_black(edited) else "ok"
+        status = "black" if is_black(edited) else "ok"     # judged on the model's own output
+        if PASTE_BACK:
+            edited = paste_back(image, edited, mask)
         output_path(editor.name, sample["id"]).parent.mkdir(parents=True, exist_ok=True)
         edited.save(output_path(editor.name, sample["id"]))
         record(sample, status, seconds, peak_gb())
         print(f"{editor.name} {index + 1}/{len(to_edit)} {sample['id']} {status} {seconds:.1f} s", flush=True)
-    result = summary(editor.name, task, samples)
+    result = summary(editor.name, task, samples, version)
     write_json(output_dir(editor.name) / f"{task}.meta.json", {**result, "device": device,
                                                                 "load_seconds": load_seconds})
     return result
 
 
-def summary(name: str, task: str, samples: list[dict] | None = None) -> dict:
+def summary(name: str, task: str, samples: list[dict] | None = None, version: int = DEFAULT_VERSION) -> dict:
     """Counts by status, median seconds per image and the highest GPU peak of a model on a task's samples."""
     ids = {s["id"] for s in samples} if samples is not None else None
-    rows = [r for r in load_runs(name).values() if r["task"] == task and (ids is None or r["id"] in ids)]
+    rows = [r for r in load_runs(name, version).values() if r["task"] == task and (ids is None or r["id"] in ids)]
     counts = {status: sum(r["status"] == status for r in rows) for status in ("ok", "failed", "black", "no-mask")}
     seconds = [r["seconds"] for r in rows if r["status"] == "ok" and r["seconds"] is not None]
     peaks = [r["gpu_peak_gb"] for r in rows if r.get("gpu_peak_gb") is not None]

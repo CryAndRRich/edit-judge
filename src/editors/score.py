@@ -75,7 +75,7 @@ def score(task: str, run_name: str = DEFAULT_RUN, device: str | None = None, all
 
     samples = load_task_samples(task)
     dataset = {sample["id"]: sample for sample in iter_samples()}
-    runs = {name: load_runs(name) for name in editors_of(task)}
+    runs = {name: load_runs(name) for name in editors_of(task)}           # outputs of the current plan version
     device = pick_device(device)
     check_heavy_run(device, len(samples), allow_cpu)
     run = TrainedRun(run_name, device)

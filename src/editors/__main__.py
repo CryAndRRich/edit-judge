@@ -24,6 +24,7 @@ import sys
 
 from ..paths import EDITORS_DIR, REPO_ROOT
 from . import EDITORS, TASKS, editors_of, get_editor
+from .plan import DEFAULT_VERSION
 
 
 def stream(command: list[str]) -> int:
@@ -69,7 +70,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--size", type=int, default=30, help="samples: samples per task")
     parser.add_argument("--limit", type=int, help="plan, masks, run, runall: the first N samples only (smoke: 5)")
     parser.add_argument("--client", default="qwen2.5-vl-7b", help="plan: the VLM (src/instructions/clients)")
-    parser.add_argument("--prompt-version", type=int, default=1, help="plan: prompts/plan_v<k>.txt")
+    parser.add_argument("--prompt-version", type=int, default=DEFAULT_VERSION,
+                        help="plan, masks, run, score, report: the plan prompt prompts/plan_v<k>.txt")
     parser.add_argument("--run", default="mlp-siglip", help="score: the scorer run (work/scorer/runs/<run>)")
     parser.add_argument("--no-sheets", action="store_true", help="report: no contact sheets")
     parser.add_argument("--device")

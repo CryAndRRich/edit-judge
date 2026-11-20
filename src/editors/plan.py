@@ -1,16 +1,24 @@
 """Edit plans: what an inpainting model needs from a request, read by an open VLM (Qwen2.5-VL-7B by default).
 
-One call per sample, with the original image, the simplified instruction, the request as written and the operation
-of its category (remove, add, replace), and the prompt prompts/plan_v<k>.txt. The answer is one JSON object:
-- targets: noun phrases for Grounding DINO (remove, replace);
-- bbox_2d: for add, where the new thing goes. Qwen2.5-VL answers in absolute pixels of the image it saw, which the
-  processor resized (smart_resize, between MIN_PIXELS and MAX_PIXELS of the client); the box is mapped back to the
-  original image here and stored as `box` in original pixels;
-- prompt: what to paint (add, replace).
+One call per sample, with the original image, the simplified instruction, the request as written and the op of the
+sample (remove, add, replace, background; samples.py), and the prompt prompts/plan_v<k>.txt. The answer is one JSON
+object (plan_v2):
+- targets: [{"phrase", "bbox_2d"}]: what to remove or replace, or (background) the subjects to keep. The phrase is
+  for Grounding DINO; the box is Qwen's own grounding, used to choose among DINO's boxes and as the fallback when
+  DINO finds nothing (grounding.py);
+- bbox_2d: for add, where the new thing goes;
+- prompt: what to paint (add, replace, background).
 
-Output: work/editors/plans/<client>/plan_v<k>.jsonl, one row per sample: {"id", "op", "targets", "box", "prompt",
-"raw", "problems"}, written after every batch, so a run can be stopped and started again. A prompt version used for
-a run is never edited; add plan_v2.txt instead.
+Coordinates. Qwen2.5-VL answers in absolute pixels of the image it saw, i.e. after its processor's smart_resize.
+That size is taken from the processor itself (`image_grid_thw` x the patch size), not assumed: the model's
+preprocessor_config.json sets max_pixels = 12,845,056, which overrides the `size` the client passes, so the
+dataset's images (at most 1,024 px) are seen at about their own size, rounded to multiples of 28. (plan_v1 assumed
+the client's 640 px limit and scaled boxes up to 1.4 x too much: fixed here.) Boxes are stored in original pixels
+with `seen` (the size Qwen saw), so any box can be checked.
+
+Output: work/editors/plans/<client>/plan_v<k>.jsonl, one row per sample: {"id", "op", "targets", "target_boxes",
+"box", "prompt", "seen", "raw", "problems"}, written after every batch, so a run can be stopped and started again.
+A prompt version used for a run is never edited; add plan_v3.txt instead.
 """
 
 import json
@@ -26,9 +34,10 @@ from .samples import load_task_samples
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 DEFAULT_CLIENT = "qwen2.5-vl-7b"
-DEFAULT_VERSION = 1
+DEFAULT_VERSION = 2
 MAX_TARGETS = 3
-MAX_TOKENS = 200
+MAX_TOKENS = 300
+MIN_BOX = 8                     # pixels: a smaller box is not a usable region
 BROKEN = ("no JSON object", "invalid JSON")
 
 
@@ -52,29 +61,35 @@ def build_prompt(sample: dict, version: int = DEFAULT_VERSION) -> str:
                                operation=sample["op"])
 
 
-def seen_size(width: int, height: int) -> tuple[int, int]:
-    """(width, height) of the image as Qwen2.5-VL saw it: the processor's smart_resize with the client's pixel
-    limits (src/instructions/clients/qwen_vl.py)."""
-    from ..instructions.clients.qwen_vl import MAX_PIXELS, MIN_PIXELS
+def seen_size(processor, image) -> tuple[int, int]:
+    """(width, height) of `image` as the model sees it, from the processor's own resize."""
+    out = processor.image_processor(images=[image], return_tensors="pt")
+    _, grid_h, grid_w = (int(v) for v in out["image_grid_thw"][0])
+    patch = processor.image_processor.patch_size
+    return grid_w * patch, grid_h * patch
+
+
+def map_box(raw, image_size: tuple[int, int], seen: tuple[int, int]) -> list[int] | None:
+    """A box of the model (pixels of the seen image) in original pixels, clipped to the image; None if unusable."""
+    if isinstance(raw, list) and len(raw) == 1 and isinstance(raw[0], list):
+        raw = raw[0]                                  # [[x1, y1, x2, y2]]
     try:
-        from transformers.models.qwen2_vl.image_processing_qwen2_vl import smart_resize
-    except ImportError:                       # same rule as transformers, for machines without it (tests)
-        def smart_resize(h, w, factor=28, min_pixels=MIN_PIXELS, max_pixels=MAX_PIXELS):
-            import math
-            h_bar, w_bar = max(factor, round(h / factor) * factor), max(factor, round(w / factor) * factor)
-            if h_bar * w_bar > max_pixels:
-                beta = math.sqrt(h * w / max_pixels)
-                h_bar, w_bar = math.floor(h / beta / factor) * factor, math.floor(w / beta / factor) * factor
-            elif h_bar * w_bar < min_pixels:
-                beta = math.sqrt(min_pixels / (h * w))
-                h_bar, w_bar = math.ceil(h * beta / factor) * factor, math.ceil(w * beta / factor) * factor
-            return h_bar, w_bar
-    seen_h, seen_w = smart_resize(height, width, factor=28, min_pixels=MIN_PIXELS, max_pixels=MAX_PIXELS)
-    return seen_w, seen_h
+        x1, y1, x2, y2 = (float(v) for v in raw)
+    except (TypeError, ValueError):
+        return None
+    width, height = image_size
+    sx, sy = width / seen[0], height / seen[1]
+    x1, x2 = sorted((max(0.0, min(width, x1 * sx)), max(0.0, min(width, x2 * sx))))
+    y1, y2 = sorted((max(0.0, min(height, y1 * sy)), max(0.0, min(height, y2 * sy))))
+    if x2 - x1 < MIN_BOX or y2 - y1 < MIN_BOX:
+        return None
+    return [round(x1), round(y1), round(x2), round(y2)]
 
 
-def parse_plan(text: str, sample: dict, image_size: tuple[int, int]) -> dict:
-    """The plan of one answer; every deviation from the format is recorded in `problems`."""
+def parse_plan(text: str, sample: dict, image_size: tuple[int, int], seen: tuple[int, int] | None = None) -> dict:
+    """The plan of one answer; every deviation from the format is recorded in `problems`. `seen` is the size the
+    model saw (default: the image's own size)."""
+    seen = seen or image_size
     problems, data = [], None
     match = re.search(r"\{.*\}", text, re.S)
     if match:
@@ -85,42 +100,41 @@ def parse_plan(text: str, sample: dict, image_size: tuple[int, int]) -> dict:
     else:
         problems.append("no JSON object")
     data = data if isinstance(data, dict) else {}
-    targets = data.get("targets") or []
-    if isinstance(targets, str):
-        targets = [targets]
-    targets = [" ".join(str(t).split()) for t in targets if str(t).strip()]
+    raw_targets = data.get("targets") or []
+    if isinstance(raw_targets, (str, dict)):
+        raw_targets = [raw_targets]
+    targets, target_boxes = [], []
+    for item in raw_targets:                          # plan_v2: {"phrase", "bbox_2d"}; plan_v1: a phrase
+        phrase = item.get("phrase") if isinstance(item, dict) else item
+        phrase = " ".join(str(phrase or "").split())
+        if not phrase:
+            continue
+        box = map_box(item.get("bbox_2d") or item.get("bbox"), image_size, seen) if isinstance(item, dict) else None
+        targets.append(phrase)
+        target_boxes.append(box)
     if len(targets) > MAX_TARGETS:
         problems.append(f"{len(targets)} targets, first {MAX_TARGETS} kept")
-        targets = targets[:MAX_TARGETS]
+        targets, target_boxes = targets[:MAX_TARGETS], target_boxes[:MAX_TARGETS]
+    op = sample["op"]
     prompt = " ".join(str(data.get("prompt") or "").split())
     box = None
-    raw_box = data.get("bbox_2d") or data.get("bbox") or data.get("box")
-    if isinstance(raw_box, list) and len(raw_box) == 1 and isinstance(raw_box[0], list):
-        raw_box = raw_box[0]                          # [[x1, y1, x2, y2]]
-    if sample["op"] == "add":
-        try:
-            x1, y1, x2, y2 = (float(v) for v in raw_box)
-        except (TypeError, ValueError):
+    if op == "add":
+        box = map_box(data.get("bbox_2d") or data.get("bbox") or data.get("box"), image_size, seen)
+        if box is None:
             problems.append("no box")
-        else:
-            width, height = image_size
-            seen_w, seen_h = seen_size(width, height)
-            sx, sy = width / seen_w, height / seen_h
-            x1, x2 = sorted((max(0.0, min(width, x1 * sx)), max(0.0, min(width, x2 * sx))))
-            y1, y2 = sorted((max(0.0, min(height, y1 * sy)), max(0.0, min(height, y2 * sy))))
-            if x2 - x1 < 8 or y2 - y1 < 8:
-                problems.append("box too small")
-            else:
-                box = [round(x1), round(y1), round(x2), round(y2)]
-    elif not targets:
-        problems.append("no targets")
-    if sample["op"] in ("add", "replace") and not prompt:
+        targets, target_boxes = [], []
+    else:
+        if not targets:
+            problems.append("no targets")
+        elif any(b is None for b in target_boxes):
+            problems.append("target without a box")
+    if op != "remove" and not prompt:
         problems.append("no prompt")
         prompt = sample["instruction"]                # better than nothing for the inpainting prompt
-    if sample["op"] == "remove":
+    if op == "remove":
         prompt = ""
-    return {"id": sample["id"], "op": sample["op"], "targets": targets if sample["op"] != "add" else [],
-            "box": box, "prompt": prompt, "raw": text, "problems": problems}
+    return {"id": sample["id"], "op": op, "targets": targets, "target_boxes": target_boxes, "box": box,
+            "prompt": prompt, "seen": list(seen), "raw": text, "problems": problems}
 
 
 def run(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VERSION, limit: int | None = None,
@@ -150,10 +164,10 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VER
         rows = []
         for sample, prompt, image, answer in zip(batch, prompts, images, answers):
             with Image.open(image) as im:
-                size = im.size
-            row = parse_plan(answer, sample, size)
+                size, seen = im.size, seen_size(client.processor, im.convert("RGB"))
+            row = parse_plan(answer, sample, size, seen)
             if len(batch) > 1 and any(p in row["problems"] for p in BROKEN):   # again alone, without padding
-                again = parse_plan(client.generate(prompt, image, MAX_TOKENS), sample, size)
+                again = parse_plan(client.generate(prompt, image, MAX_TOKENS), sample, size, seen)
                 row = again if len(again["problems"]) < len(row["problems"]) else row
             problems += bool(row["problems"])
             rows.append(row)

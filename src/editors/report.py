@@ -16,6 +16,7 @@ works and roughly where it stands, not a ranking of close models.
 
 import statistics
 
+from ..common.dataset import iter_samples
 from ..common.io import iter_jsonl
 from ..paths import EDITORS_DIR, SAMPLES_DIR
 from . import editors_of
@@ -23,7 +24,7 @@ from .base import load_runs, output_path, summary
 from .grounding import load_masks, mask_path
 from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans
 from .samples import load_task_samples
-from .score import load_scores, scores_path
+from .score import load_scores, scores_path, top_human
 
 TILE = 224
 ROWS_PER_SHEET = 8
@@ -74,10 +75,15 @@ def tile(path, label: str, mask=None):
     return canvas
 
 
+def best_human_edits(ids: set[str]) -> dict[str, str]:
+    """Sample ID -> the key of its best human edit in the final ranking (from the dataset; empty without it)."""
+    return {s["id"]: top_human(s["pairs"]) for s in iter_samples() if s["id"] in ids}
+
+
 def contact_sheets(task: str, samples: list[dict], models: list[str]) -> list:
     from PIL import Image
 
-    top = {row["id"]: row["top_human"] for row in iter_jsonl(scores_path(task))}
+    top = best_human_edits({s["id"] for s in samples})
     scores = load_scores(task)
     folder = EDITORS_DIR / task / "sheets"
     folder.mkdir(parents=True, exist_ok=True)
@@ -93,7 +99,7 @@ def contact_sheets(task: str, samples: list[dict], models: list[str]) -> list:
             tiles = [tile(original, f"{sid} {sample['op']}"),
                      tile(original, "mask", mask_path(sid)),
                      tile(SAMPLES_DIR / sid / f"{human}.jpg" if human else None,
-                          f"best human {scores.get(sid, {}).get(f'human:{human}', '')}")]
+                          f"best human {human or ''} {scores.get(sid, {}).get(f'human:{human}', '')}")]
             for name in models:
                 value = scores.get(sid, {}).get(f"model:{name}")
                 tiles.append(tile(output_path(name, sid), f"{name} {'' if value is None else value}"))
@@ -109,7 +115,7 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_
     samples = load_task_samples(task)
     ids = {s["id"] for s in samples}
     plans = {k: v for k, v in load_plans(client_name, version).items() if k in ids}
-    masks = {k: v for k, v in load_masks().items() if k in ids}
+    masks = {k: v for k, v in load_masks(version).items() if k in ids}
     models = editors_of(task)
     lines = [f"# Editing models: {task}", "",
              f"{len(samples)} dev samples ({', '.join(sorted({s['op'] for s in samples}))}); plans by {client_name} "
@@ -117,18 +123,27 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_
              "## Plans and masks", "",
              "| Planned | With problems | Masks ok | No mask | Median share masked |", "|---|---|---|---|---|"]
     coverage = [m["coverage"] for m in masks.values() if m["status"] == "ok"]
+    ops = sorted({m["op"] for m in masks.values()})
     lines.append(f"| {len(plans)} | {sum(bool(p['problems']) for p in plans.values())} | "
                  f"{sum(m['status'] == 'ok' for m in masks.values())} | "
                  f"{sum(m['status'] == 'no-mask' for m in masks.values())} | "
                  f"{percent(statistics.median(coverage)) if coverage else '-'} |")
+    by_source = {}
+    for m in masks.values():
+        for source in {b[-1] for b in m["boxes"]} or {"-"}:
+            by_source[source] = by_source.get(source, 0) + 1
+    lines += ["", "Masks by op: " + ", ".join(f"{op} {sum(m['op'] == op and m['status'] == 'ok' for m in masks.values())}"
+                                          f"/{sum(m['op'] == op for m in masks.values())}" for op in ops),
+              "Boxes from: " + ", ".join(f"{k} {v}" for k, v in sorted(by_source.items())) +
+              " (dino: Grounding DINO inside Qwen's box; qwen: Qwen's box, DINO found nothing there; plan: add)"]
     lines += ["", "## Runs", "", "| Model | Ok | Failed | Black | No mask | Median s / image | Peak GPU GB |",
               "|---|---|---|---|---|---|---|"]
     for name in models:
-        s = summary(name, task, samples)
+        s = summary(name, task, samples, version)
         lines.append(f"| {name} | {s['ok']} | {s['failed']} | {s['black']} | {s['no-mask']} | "
                      f"{s['median_seconds'] if s['median_seconds'] is not None else '-'} | "
                      f"{s['gpu_peak_gb'] if s['gpu_peak_gb'] is not None else '-'} |")
-    failures = [(name, r) for name in models for r in load_runs(name).values()
+    failures = [(name, r) for name in models for r in load_runs(name, version).values()
                 if r["id"] in ids and r["status"] in ("failed", "black")]
     if failures:
         lines += ["", "Failures (last attempt):", ""]
