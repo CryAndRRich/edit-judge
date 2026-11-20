@@ -1,0 +1,20 @@
+You are preparing an automatic photo edit. A user posted this photo with an edit request.
+
+Request (simplified): "$instruction"
+Request (as written): "$request"
+Type of edit: $operation
+
+Inpainting models will repaint one region of the photo. Answer with the information they need, as one JSON object:
+
+{"targets": [...], "bbox_2d": [x1, y1, x2, y2] or null, "prompt": "..."}
+
+- "targets": for remove and replace, the things in the photo that must disappear or be replaced, each as a short
+  English noun phrase that names it as it looks in the photo, so that an object detector can find it (for
+  example "the man on the left", "the white text", "the power lines"). One phrase per separate thing, at most 3.
+  For add, an empty list.
+- "bbox_2d": for add, the box in this image where the new thing should be painted, in pixel coordinates of the
+  image you see. Make it the size the new thing should have. For remove and replace, null.
+- "prompt": for add and replace, a short description of what to paint in the region (for example "a red sports
+  car", "a clear blue sky", "a black leather jacket"). For remove, an empty string.
+
+Answer with the JSON object only.
