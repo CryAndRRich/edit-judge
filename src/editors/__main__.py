@@ -24,7 +24,6 @@ import sys
 
 from ..paths import EDITORS_DIR, REPO_ROOT
 from . import EDITORS, TASKS, editors_of, get_editor
-from .plan import DEFAULT_VERSION
 
 
 def stream(command: list[str]) -> int:
@@ -70,8 +69,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--size", type=int, default=30, help="samples: samples per task")
     parser.add_argument("--limit", type=int, help="plan, masks, run, runall: the first N samples only (smoke: 5)")
     parser.add_argument("--client", default="qwen2.5-vl-7b", help="plan: the VLM (src/instructions/clients)")
-    parser.add_argument("--prompt-version", type=int, default=DEFAULT_VERSION,
-                        help="plan, masks, run, score, report: the plan prompt prompts/plan_v<k>.txt")
+    parser.add_argument("--prompt-version", type=int,
+                        help="plan, masks, run, score, report: the plan prompt prompts/plan_v<k>.txt (default: the "
+                             "task's, plan.TASK_VERSIONS: remove 2, add_replace 3)")
     parser.add_argument("--run", default="mlp-siglip", help="score: the scorer run (work/scorer/runs/<run>)")
     parser.add_argument("--no-sheets", action="store_true", help="report: no contact sheets")
     parser.add_argument("--device")
@@ -110,14 +110,14 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "runall":
         models = args.models.split(",") if args.models else editors_of(args.task)
         extra = (["--device", args.device] if args.device else []) + (["--allow-cpu"] if args.allow_cpu else [])
-        extra += ["--client", args.client, "--prompt-version", str(args.prompt_version)]
+        extra += ["--client", args.client] + (["--prompt-version", str(args.prompt_version)] if args.prompt_version else [])
         result = run_all(args.task, models, args.limit, extra)
         if any(code != 0 for code in result.values()):
             print(json.dumps(result, indent=1))
             sys.exit(1)
     elif args.command == "score":
         from .score import score
-        result = score(args.task, args.run, **common)
+        result = score(args.task, args.run, version=args.prompt_version, **common)
     else:
         from .report import report
         print(report(args.task, sheets=not args.no_sheets, **plan_args))

@@ -22,7 +22,7 @@ from ..paths import EDITORS_DIR, SAMPLES_DIR
 from . import editors_of
 from .base import load_runs, output_path, summary
 from .grounding import load_masks, mask_path
-from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans
+from .plan import DEFAULT_CLIENT, load_plans, plan_version
 from .samples import load_task_samples
 from .score import load_scores, scores_path, top_human
 
@@ -111,7 +111,8 @@ def contact_sheets(task: str, samples: list[dict], models: list[str]) -> list:
     return written
 
 
-def report(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VERSION, sheets: bool = True) -> str:
+def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None, sheets: bool = True) -> str:
+    version = version or plan_version(task)
     samples = load_task_samples(task)
     ids = {s["id"] for s in samples}
     plans = {k: v for k, v in load_plans(client_name, version).items() if k in ids}

@@ -21,6 +21,7 @@ from ..common.io import iter_jsonl, write_jsonl
 from ..paths import EDITORS_DIR, SAMPLES_DIR
 from . import editors_of
 from .base import load_runs, output_path
+from .plan import plan_version
 from .samples import load_task_samples
 
 DEFAULT_RUN = "mlp-siglip"
@@ -66,7 +67,8 @@ def head_scores(run, encoded: dict) -> list[float]:
     return scores.cpu().tolist()
 
 
-def score(task: str, run_name: str = DEFAULT_RUN, device: str | None = None, allow_cpu: bool = False) -> dict:
+def score(task: str, run_name: str = DEFAULT_RUN, device: str | None = None, allow_cpu: bool = False,
+          version: int | None = None) -> dict:
     import torch
 
     from ..scorer.backbones import get_backbone
@@ -75,7 +77,8 @@ def score(task: str, run_name: str = DEFAULT_RUN, device: str | None = None, all
 
     samples = load_task_samples(task)
     dataset = {sample["id"]: sample for sample in iter_samples()}
-    runs = {name: load_runs(name) for name in editors_of(task)}           # outputs of the current plan version
+    version = version or plan_version(task)
+    runs = {name: load_runs(name, version) for name in editors_of(task)}  # outputs of the task's plan version
     device = pick_device(device)
     check_heavy_run(device, len(samples), allow_cpu)
     run = TrainedRun(run_name, device)

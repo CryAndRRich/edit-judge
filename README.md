@@ -539,15 +539,18 @@ python -m src.editors report --task remove           # work/editors/remove/repor
 - **Samples** (`samples.py`): dev samples only, single-category requests first, dealt round-robin over subjects so
   the first 5 (the smoke run) already differ. `add_replace` is half Add, half Replace; Add/Replace Background get
   the op `background`. Left out: "Remove Background" (list 7), samples with a category of the other task, humorous
-  requests, and requests one inpainting step cannot answer (cut-outs and retouching for remove, changes of size
-  or shape for add_replace; word lists in `UNSUITABLE`).
-- **Plans** (`plan.py`, `prompts/plan_v2.txt`): Qwen2.5-VL-7B names each target with its own box, gives the box
-  for Add and the inpainting prompt. Its boxes are in pixels of the image it saw, which is read from the
+  requests, and requests one inpainting step cannot answer (cut-outs, crops, retouching and restoration for
+  remove; changes of size or shape and whole-image or identity changes for add_replace; word lists in
+  `UNSUITABLE`).
+- **Plans** (`plan.py`, `prompts/plan_v<k>.txt`; remove uses v2, add_replace v3): Qwen2.5-VL-7B names each
+  target with its own box, what to keep (background; add: what the new thing must not cover), for Add the existing
+  thing it goes on (its anchor: a face for a beard) or else a free box, and the inpainting prompt. Its boxes are in pixels of the image it saw, which is read from the
   processor (`image_grid_thw`): the model's config overrides the client's pixel limit, so plan_v1's mapping was
   wrong (smoke run, 2026-11-20). Answers with problems are recorded.
 - **Masks** (`grounding.py`): Grounding DINO's boxes that lie in Qwen's box for the target (so "the letters DB"
   keeps both), Qwen's box when DINO finds none there, then SAM 2.1 and their union; grown by 15 px (remove) or
-  8 px (replace); for `background` the subjects' mask is inverted. A sample where nothing is found is `no-mask`.
+  8 px (replace); for `background` the kept subjects' mask is inverted; for Add, a rectangle around the anchor
+  (or the free box) minus the kept things. A sample where nothing is found is `no-mask`.
   Masks record their plan version, and a mask or an output of an older plan version is made again.
 - **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`) in its own
   file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. Outputs are resized back to

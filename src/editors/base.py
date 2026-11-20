@@ -26,7 +26,7 @@ from ..common.device import check_heavy_run, pick_device
 from ..common.io import append_jsonl, iter_jsonl, write_json
 from ..paths import EDITORS_DIR, SAMPLES_DIR
 from .grounding import load_masks, mask_path
-from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans, prompt_id
+from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans, plan_version, prompt_id
 from .samples import load_task_samples
 
 SEED = 0
@@ -90,9 +90,10 @@ def gpu_peak():
 
 
 def run(editor: Editor, task: str, limit: int | None = None, device: str | None = None, allow_cpu: bool = False,
-        client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VERSION) -> dict:
+        client_name: str = DEFAULT_CLIENT, version: int | None = None) -> dict:
     from PIL import Image
 
+    version = version or plan_version(task)
     if task not in editor.tasks:
         raise SystemExit(f"{editor.name} does not run on {task} (its tasks: {', '.join(editor.tasks)})")
     samples = load_task_samples(task, limit)

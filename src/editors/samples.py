@@ -8,9 +8,14 @@ A request that also has a category of the other task (e.g. "Remove Person" and "
 sample belongs to one task only and its plan and mask are unambiguous. So are requests an inpainting step cannot
 answer, found by words of the simplified instruction (the smoke run of 2026-11-20 showed each kind):
 - humorous requests (RealEdit's "humorous", with or without a full stop);
-- remove: cut-outs ("cut out the bear ... transparent background" keeps the bear: list 7's job) and retouching
-  ("discoloration", "sweat", "acne": no object to segment, and SAM then masks the whole shirt or face);
-- add_replace: changes of shape or size ("make my cat longer"), which no mask expresses.
+- remove: cut-outs and crops ("cut out the bear ... transparent background", "crop so only the cat's head
+  remains", "keeping only the bunny", "place this tree onto a blue background": the subject stays, list 7's job),
+  retouching ("discoloration", "sweat", "acne": no object to segment, and SAM then masks the whole shirt or face)
+  and restoration;
+- add_replace: changes of shape or size ("make my cat longer"), which no mask expresses, and whole-image or
+  identity changes ("swap the heads", "transform the cat into Solaire", "turn this building into Minions",
+  "Star Wars themed", "blend the pug and the helmet"): the generalists of list 1 do those. "Remove the watermark"
+  (filed under Add Logo) is a removal.
 Add and Replace requests whose subject is Background get the op "background": the subject is kept and everything
 else is repainted (grounding.py inverts its mask).
 
@@ -38,9 +43,12 @@ OPERATIONS = {"remove": ("Remove",), "add_replace": ("Add", "Replace")}
 UNSUITABLE = {
     "remove": ("cut out", "cutout", "cut-out", "transparent", "isolate", "extract", "png",
                "discolor", "discolour", "stain", "sweat", "acne", "blemish", "pimple", "wrinkle", "shine", "glare",
-               "red eye", "red-eye", "redness", "dark circle", "bags under", "spots on", "skin"),
+               "red eye", "red-eye", "redness", "dark circle", "bags under", "spots on", "skin",
+               "crop", "keep only", "keeping only", "leave only", "leaving only", "onto", "restore"),
     "add_replace": ("longer", "shorter", "bigger", "larger", "smaller", "taller", "wider", "thinner", "slimmer",
-                    "move", "resize", "stretch"),
+                    "move", "resize", "stretch",
+                    "swap", "transform", "turn", "themed", "style", "blend", "realistic", "clean version",
+                    "watermark"),
 }
 OTHER_TASKS = {operation: {other for task, ops in OPERATIONS.items() if operation not in ops for other in ops}
                for ops in OPERATIONS.values() for operation in ops}     # Remove -> {Add, Replace}, ...

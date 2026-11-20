@@ -11,9 +11,12 @@ on its boxes:
 SAM 2.1 large turns the kept boxes into masks (`input_boxes`, `multimask_output=False`); the sample's mask is their
 union. Then by op:
 - remove: grown by 15 px (edges and shadows must go too); replace: grown by 8 px;
-- background: the subjects' mask grown by 4 px (their edges stay intact), then inverted: everything else is
-  repainted;
-- add: the plan's box, filled (nothing to segment yet).
+- background: the mask of the `keep` subjects grown by 4 px (their edges stay intact), then inverted: everything
+  else is repainted (plan_v2 plans name those subjects in `targets`);
+- add: a rectangle: around the anchor (plan_v3: the existing thing the new one goes on, found like a target; its
+  boxes' extent grown by ANCHOR_GROW on every side, so a beard or a hat has room), or the plan's free box without
+  an anchor. The SAM masks of the `keep` things (grown by 4 px) are cut out of it, so "add a camel behind us" does
+  not paint over the people; a keep box that contains the anchor's centre is skipped (it is the anchor's owner).
 Both detectors run in float32 (0.9 GB each; T4 has no fast bfloat16). Every model gets the same mask.
 
 Output: work/editors/masks/<sample id>.png (L, 255 = repaint) and masks.jsonl, one row per sample: {"id", "op",
@@ -27,7 +30,7 @@ import time
 from ..common.device import check_heavy_run, pick_device
 from ..common.io import append_jsonl, iter_jsonl
 from ..paths import EDITORS_DIR, SAMPLES_DIR
-from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans, prompt_id
+from .plan import DEFAULT_CLIENT, DEFAULT_VERSION, load_plans, plan_version, prompt_id
 from .samples import load_task_samples
 
 DINO_ID = "IDEA-Research/grounding-dino-base"
@@ -37,7 +40,8 @@ TEXT_THRESHOLD = 0.3
 QWEN_BOX_MARGIN = 0.10          # a DINO box is meant when its centre lies in Qwen's box grown by this share
 MAX_BOXES = 6
 DILATE = {"remove": 15, "replace": 8, "add": 0, "background": 0}
-KEEP_EDGE = 4                   # background: pixels added around the kept subjects before inverting
+KEEP_EDGE = 4                   # pixels added around kept things before they are cut out of the mask
+ANCHOR_GROW = 0.25              # add: share of the anchor's size added on every side
 MASKS_DIR = EDITORS_DIR / "masks"
 MASKS_INDEX = MASKS_DIR / "masks.jsonl"
 
@@ -130,31 +134,69 @@ class Grounder:
         return Image.fromarray(union.astype("uint8") * 255, mode="L")
 
 
+def locate(grounder, image, phrases: list[str], qwen_boxes: list | None) -> list[list]:
+    """The boxes of every phrase (choose_boxes), in order."""
+    boxes = []
+    for phrase, qwen_box in zip(phrases, qwen_boxes or [None] * len(phrases)):
+        boxes += choose_boxes(grounder.find(image, phrase), qwen_box, phrase)
+    return boxes
+
+
+def grown(boxes: list[list], size: tuple[int, int], share: float) -> list[int]:
+    """The extent of `boxes`, grown by `share` of its size on every side, clipped to the image."""
+    x1, y1 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+    x2, y2 = max(b[2] for b in boxes), max(b[3] for b in boxes)
+    dx, dy = (x2 - x1) * share, (y2 - y1) * share
+    return [round(max(0, x1 - dx)), round(max(0, y1 - dy)), round(min(size[0], x2 + dx)), round(min(size[1], y2 + dy))]
+
+
+def needs_detectors(plan: dict) -> bool:
+    return plan["op"] != "add" or bool(plan.get("anchor") or plan.get("keep"))
+
+
 def sample_mask(grounder, image, plan: dict):
     """(mask or None, boxes) of one plan."""
-    from PIL import ImageOps
+    from PIL import ImageChops, ImageOps
 
     op = plan["op"]
+    keep, keep_qwen = plan.get("keep") or [], plan.get("keep_boxes")
+    if op == "background" and not keep:                   # plan_v2: the subjects to keep were the targets
+        keep, keep_qwen = plan["targets"], plan.get("target_boxes")
     if op == "add":
-        if not plan["box"]:
+        if plan.get("anchor"):
+            anchor = locate(grounder, image, [plan["anchor"]], [plan.get("anchor_box")])
+            if not anchor:
+                return None, []
+            region, boxes = grown(anchor, image.size, ANCHOR_GROW), [[*b[:6], "anchor:" + b[6]] for b in anchor]
+        elif plan.get("box"):
+            region, boxes = plan["box"], [[*plan["box"], 1.0, "new", "plan"]]
+        else:
             return None, []
-        return box_mask(image.size, [plan["box"]]), [[*plan["box"], 1.0, "new", "plan"]]
-    boxes = []
-    qwen_boxes = plan.get("target_boxes") or [None] * len(plan["targets"])
-    for phrase, qwen_box in zip(plan["targets"], qwen_boxes):
-        boxes += choose_boxes(grounder.find(image, phrase), qwen_box, phrase)
+        mask = box_mask(image.size, [region])
+        if keep:
+            centre = [(region[0] + region[2]) / 2, (region[1] + region[3]) / 2] * 2
+            kept = [b for b in locate(grounder, image, keep, keep_qwen)
+                    if not (plan.get("anchor") and inside(centre, b[:4], 0.0))]
+            if kept:
+                mask = ImageChops.subtract(mask, dilate(grounder.segment(image, kept), KEEP_EDGE))
+                boxes += [[*b[:6], "keep:" + b[6]] for b in kept]
+        return mask, boxes
+    if op == "background":
+        boxes = [[*b[:6], "keep:" + b[6]] for b in locate(grounder, image, keep, keep_qwen)]
+        if not boxes:
+            return None, []
+        return ImageOps.invert(dilate(grounder.segment(image, boxes), KEEP_EDGE)), boxes
+    boxes = locate(grounder, image, plan["targets"], plan.get("target_boxes"))
     if not boxes:
         return None, []
-    mask = grounder.segment(image, boxes)
-    if op == "background" and mask.getbbox():
-        mask = ImageOps.invert(dilate(mask, KEEP_EDGE))
-    return mask, boxes
+    return grounder.segment(image, boxes), boxes
 
 
-def run(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VERSION, limit: int | None = None,
+def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None, limit: int | None = None,
         device: str | None = None, allow_cpu: bool = False) -> dict:
     from PIL import Image
 
+    version = version or plan_version(task)
     samples = load_task_samples(task, limit)
     plans = load_plans(client_name, version)
     done = load_masks(version)
@@ -174,7 +216,7 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VER
             continue                                  # not recorded: a later run picks it up
         with Image.open(SAMPLES_DIR / sample["id"] / "original.jpg") as im:
             image = im.convert("RGB")
-        if grounder is None and plan["op"] != "add":
+        if grounder is None and needs_detectors(plan):
             grounder = Grounder()
             grounder.load(device)
             print(f"loaded Grounding DINO and SAM 2.1 on {device}", flush=True)
@@ -189,7 +231,7 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int = DEFAULT_VER
             row.update(status="ok", coverage=round(mask.histogram()[255] / (image.width * image.height), 4))
         counts[row["status"]] += 1
         append_jsonl(MASKS_INDEX, [row])
-        sources = ",".join(sorted({b[-1] for b in boxes})) or "-"
+        sources = ",".join(sorted({b[-1] for b in boxes})) or "-"            # e.g. dino, qwen, anchor:dino, keep:qwen
         print(f"mask {index + 1}/{len(todo)} {sample['id']} {plan['op']} {row['status']} {row['coverage']:.1%} "
               f"({len(boxes)} boxes: {sources})", flush=True)
     return {"task": task, **counts, "seconds": round(time.monotonic() - started, 1)}
