@@ -236,4 +236,8 @@ AceTone (list 4) also runs here on requests that change the colour tone of the w
 
 | Model | Member | Smoke | Full run |
 |---|---|---|---|
-| | | | |
+| LaMa (big-lama) | | code ready (`src/editors`, CPU check on synthetic images) | |
+| RORem | | code ready (`src/editors`) | |
+| ObjectClear | | code ready (`src/editors`) | |
+| SDXL Inpainting 0.1 (Add/Replace) | | code ready (`src/editors`) | |
+| Grounding DINO base + SAM 2.1 large | | code ready (`src/editors/grounding.py`) | |
