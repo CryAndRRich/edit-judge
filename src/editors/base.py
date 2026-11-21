@@ -20,9 +20,10 @@ small changes a diffusion model's VAE makes outside the mask. It also cuts shado
 (15 px grown) mask, the same for every model. The setting is recorded with every output.
 
 Output: work/editors/<model>/<sample id>.png and work/editors/<model>/runs.jsonl, one row per attempt: {"id",
-"task", "plan", "status" (ok | failed | black | no-mask | n/a), "mask_digest", "uses_mask", "seconds",
-"gpu_peak_gb", "settings", "error"}. An attempt counts only while it is current: same plan version and, for a
-mask-based model, the same mask (`mask_digest`, grounding.py); an output of a changed mask is made again. A current
+"task", "plan", "status" (ok | failed | black | no-mask | n/a), "mask_digest", "uses_mask", "settings_version", "seconds",
+"gpu_peak_gb", "settings", "error"}. An attempt counts only while it is current: same plan version, same
+`settings_version` of the editor (raised when a model's settings change, so its outputs are made again) and, for a mask-based model, the
+same mask (`mask_digest`, grounding.py); an output of a changed mask is made again. A current
 ok, no-mask or n/a sample is not run again; failed and black ones are tried again by the next run. "black" catches
 the fp16 failure of MODEL_LIST.md (black or NaN images). The first sample's time includes CUDA warm-up, so the
 summary reports the median.
@@ -53,6 +54,8 @@ class Editor:
     tasks: tuple[str, ...] = ()     # the tasks of src/editors/__init__.py:TASKS it runs on
     ops: tuple[str, ...] | None = None   # the ops it runs on (None: every op of its tasks)
     uses_mask: bool = True  # False: an instruction editor, given the instruction and no mask
+    settings_version: int = 1   # raise when the settings change: outputs of an older one are made again
+    op: str | None = None   # the op of the sample being edited, set by the runner before each edit()
     install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each (src/common/envs.py)
     isolated: bool = False
     settings: dict = {}     # the settings used, recorded with every output
@@ -82,10 +85,12 @@ def runs_path(name: str):
 def load_runs(name: str, version: int = DEFAULT_VERSION) -> dict[str, dict]:
     """Sample ID -> the last current attempt of the model on it: made from a plan of prompt version `version` and,
     for a mask-based model, from the sample's current mask (attempts of an older plan or mask are made again)."""
+    from . import get_editor
+    settings_version = get_editor(name).settings_version
     digests = {sid: row.get("digest") for sid, row in load_masks(version).items()}
     rows = {}
     for row in iter_jsonl(runs_path(name)):
-        if row.get("plan", "plan_v1") == prompt_id(version):
+        if row.get("plan", "plan_v1") == prompt_id(version) and row.get("settings_version", 1) == settings_version:
             rows[row["id"]] = row
     return {sid: row for sid, row in rows.items()
             if not row.get("uses_mask", True) or row["status"] == "n/a"
@@ -136,7 +141,8 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
     def record(sample, status, seconds=None, peak=None, error=None):
         digest = masks.get(sample["id"], {}).get("digest") if editor.uses_mask else None
         append_jsonl(out, [{"id": sample["id"], "task": task, "plan": prompt_id(version), "status": status,
-                            "mask_digest": digest, "uses_mask": editor.uses_mask, "seconds": seconds,
+                            "mask_digest": digest, "uses_mask": editor.uses_mask, "settings_version": editor.settings_version,
+                            "seconds": seconds,
                             "gpu_peak_gb": peak, "model_id": editor.model_id,
                             "settings": {**editor.settings, "paste_back": PASTE_BACK and editor.uses_mask,
                                          "feather": FEATHER},
@@ -162,6 +168,7 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
             prompt = plans[sample["id"]]["prompt"] if sample["id"] in plans else sample["instruction"]
         else:
             mask, prompt = None, sample["instruction"]
+        editor.op = sample["op"]
         reset_peak()
         started = time.perf_counter()
         try:

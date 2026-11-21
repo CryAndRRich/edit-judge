@@ -547,15 +547,19 @@ python -m src.editors report --task remove           # work/editors/remove/repor
   target with its own box, what to keep (background; add: what the new thing must not cover), for Add the existing
   thing it goes on (its anchor: a face for a beard) or else a free box, and the inpainting prompt. Its boxes are in pixels of the image it saw, which is read from the
   processor (`image_grid_thw`): the model's config overrides the client's pixel limit, so plan_v1's mapping was
-  wrong (smoke run, 2026-11-20). Answers with problems are recorded.
+  wrong (smoke run, 2026-11-20). Answers with problems are recorded; a background plan with nothing to keep is
+  asked again for the subjects alone (`prompts/keep_v1.txt`).
 - **Masks** (`grounding.py`): Grounding DINO's boxes that lie in Qwen's box for the target (so "the letters DB"
   keeps both), Qwen's box when DINO finds none there, then SAM 2.1 and their union; grown by 15 px (remove) or
   8 px (replace); for `background` the kept subjects' mask is inverted; for Add, a rectangle around the anchor
-  (or the free box) minus the kept things. A sample where nothing is found is `no-mask`.
+  (or the free box) minus the kept things; an addition worn on the face or head (a beard, glasses, a hat) is
+  anchored on the face or head, not the whole person, and an Add rectangle covers at most 30% of the image. A
+  sample where nothing is found is `no-mask`.
   Masks record their plan version, and a mask or an output of an older plan version is made again.
 - **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`; `uses_mask`,
-  `ops`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
-  records the digest of the mask it was made from, so only samples whose mask changed are run again. Outputs are resized back to
+  `ops`, `settings_version`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
+  records the digest of the mask it was made from and the editor's `settings_version`, so only samples whose mask
+  or settings changed are run again. Outputs are resized back to
   the original size, and only the masked region is kept (pasted back on the original over a 3 px soft edge), so
   models working at 512 px are not judged on a resampled photo. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
 - **Scores and report** (`score.py`, `report.py`): every output is scored together with the human edits of its

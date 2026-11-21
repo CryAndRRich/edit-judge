@@ -12,6 +12,11 @@ and as the fallback when DINO finds nothing; grounding.py):
   of 2026-11-20: facial hair boxed on the chest), so a free box (`bbox_2d`) is used only without an anchor;
 - prompt: what the region shows after the edit (add, replace, background).
 
+A background plan with nothing to keep (Qwen left `keep` empty for "Impose this shoe onto a galaxy background", run
+of 2026-11-21) is asked again with prompts/keep_v1.txt, which asks only for the subjects to keep; the row records
+`keep_retry` (that prompt's ID) and the second answer in `raw_keep`. Plans of the earlier code that lack the retry
+are asked again by the next run.
+
 Prompt versions per task (TASK_VERSIONS): remove keeps plan_v2, which works for it, so its plans, masks and
 outputs of the second smoke run are reused; add_replace uses plan_v3.
 
@@ -46,6 +51,25 @@ MAX_TARGETS = 5
 MAX_TOKENS = 300
 MIN_BOX = 8                     # pixels: a smaller box is not a usable region
 BROKEN = ("no JSON object", "invalid JSON")
+KEEP_PROMPT = "keep_v1"
+
+
+def needs_keep_retry(row: dict) -> bool:
+    return row["op"] == "background" and not row.get("keep") and not row.get("targets") and "keep_retry" not in row
+
+
+def keep_retry(client, sample: dict, image, size: tuple[int, int], seen: tuple[int, int], row: dict) -> dict:
+    """`row` with the subjects to keep asked again (KEEP_PROMPT), when they were missing."""
+    template = Template((PROMPTS_DIR / f"{KEEP_PROMPT}.txt").read_text(encoding="utf-8"))
+    prompt = template.substitute(instruction=" ".join(sample["instruction"].split()).replace('"', "'"))
+    answer = client.generate(prompt, image, MAX_TOKENS)
+    again = parse_plan(answer, sample, size, seen)
+    row = {**row, "keep_retry": KEEP_PROMPT, "raw_keep": answer}
+    if again["keep"]:
+        problems = [p for p in row["problems"] if p != "nothing to keep"]
+        problems += [p for p in again["problems"] if " keep" in f" {p}"]
+        row.update(keep=again["keep"], keep_boxes=again["keep_boxes"], problems=problems)
+    return row
 
 
 def plan_version(task: str) -> int:
@@ -169,7 +193,7 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None
     version = version or plan_version(task)
     samples = load_task_samples(task, limit)
     out = plans_path(client_name, version)
-    done = {row["id"] for row in iter_jsonl(out)}
+    done = {row["id"] for row in load_plans(client_name, version).values() if not needs_keep_retry(row)}
     todo = [s for s in samples if s["id"] not in done]
     device = pick_device(device)
     check_heavy_run(device, len(todo), allow_cpu)
@@ -193,6 +217,8 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None
             if len(batch) > 1 and any(p in row["problems"] for p in BROKEN):   # again alone, without padding
                 again = parse_plan(client.generate(prompt, image, MAX_TOKENS), sample, size, seen)
                 row = again if len(again["problems"]) < len(row["problems"]) else row
+            if needs_keep_retry(row):
+                row = keep_retry(client, sample, image, size, seen, row)
             problems += bool(row["problems"])
             rows.append(row)
         append_jsonl(out, rows)

@@ -17,7 +17,11 @@ union. Then by op:
   else is repainted (plan_v2 plans name those subjects in `targets`);
 - add: a rectangle: around the anchor (plan_v3: the existing thing the new one goes on, found like a target; its
   boxes' extent grown by ANCHOR_GROW on every side, so a beard or a hat has room), or the plan's free box without
-  an anchor. The SAM masks of the `keep` things (grown by 4 px) are cut out of it, so "add a camel behind us" does
+  an anchor. When the instruction adds something worn on the face or the head (BODY_PARTS: a beard, glasses, a hat,
+  hair), the anchor is that part ("face", "head"), found by DINO inside Qwen's anchor box (or its free box): Qwen
+  anchors such edits on the whole person ("add facial hair" -> "the man", 68% of the photo repainted and the man
+  replaced, run of 2026-11-21). The rectangle is then shrunk about its centre to at most MAX_ADD_SHARE of the
+  image. The SAM masks of the `keep` things (grown by 4 px) are cut out of it, so "add a camel behind us" does
   not paint over the people; a keep box that contains the anchor's centre is skipped (it is the anchor's owner).
 Both detectors run in float32 (0.9 GB each; T4 has no fast bfloat16). Every model gets the same mask.
 
@@ -28,6 +32,8 @@ of the image masked)}. A sample where nothing is found is "no-mask"; the editors
 """
 
 import inspect
+import math
+import re
 import time
 
 from ..common.device import check_heavy_run, pick_device
@@ -45,8 +51,18 @@ MAX_BOXES = 6
 DILATE = {"remove": 15, "replace": 8, "add": 0, "background": 0}
 KEEP_EDGE = 4                   # pixels added around kept things before they are cut out of the mask
 ANCHOR_GROW = 0.25              # add: share of the anchor's size added on every side
-GROUNDING = 2                   # version of the rules above; masks of an older version are made again
-                                # (2: targets without a Qwen box are dropped when others have one)
+MAX_ADD_SHARE = 0.30            # add: largest share of the image the rectangle may cover
+BODY_PARTS = {                  # add: words of the instruction -> the part the new thing goes on (first match wins)
+    "face": ("beard", "facial hair", "moustache", "mustache", "goatee", "stubble", "sideburn", "glasses",
+             "sunglasses", "spectacles", "makeup", "make-up", "lipstick", "eyeliner", "eyeshadow", "mascara",
+             "freckle", "face paint", "eyebrow", "eyelash", "earring", "nose ring", "face mask"),
+    "head": ("hat", "cap", "crown", "helmet", "hair", "wig", "headband", "halo", "horn", "tiara", "beanie",
+             "bunny ears", "cat ears", "hood"),
+}
+GROUNDING = 3                   # version of the rules above; masks of an older version are made again
+                                # (2: targets without a Qwen box are dropped when others have one; 3: add on a face
+                                # or head anchors on that part, add rectangles capped at MAX_ADD_SHARE; an
+                                # unchanged mask keeps its digest, so outputs of it are not made again)
 MASKS_DIR = EDITORS_DIR / "masks"
 MASKS_INDEX = MASKS_DIR / "masks.jsonl"
 
@@ -167,12 +183,32 @@ def grown(boxes: list[list], size: tuple[int, int], share: float) -> list[int]:
     return [round(max(0, x1 - dx)), round(max(0, y1 - dy)), round(min(size[0], x2 + dx)), round(min(size[1], y2 + dy))]
 
 
-def needs_detectors(plan: dict) -> bool:
-    return plan["op"] != "add" or bool(plan.get("anchor") or plan.get("keep"))
+def body_part(instruction: str) -> str | None:
+    """"face" or "head" when the instruction adds something worn there, else None."""
+    text = instruction.lower()
+    for part, words in BODY_PARTS.items():
+        if any(re.search(rf"\b{re.escape(word)}(s|es)?\b", text) for word in words):
+            return part
+    return None
 
 
-def sample_mask(grounder, image, plan: dict):
-    """(mask or None, boxes) of one plan."""
+def capped(region: list[int], size: tuple[int, int], share: float = MAX_ADD_SHARE) -> list[int]:
+    """`region` shrunk about its centre, keeping its shape, to at most `share` of the image."""
+    x1, y1, x2, y2 = region
+    limit = share * size[0] * size[1]
+    if (x2 - x1) * (y2 - y1) <= limit:
+        return region
+    scale = math.sqrt(limit / ((x2 - x1) * (y2 - y1)))
+    cx, cy, half_w, half_h = (x1 + x2) / 2, (y1 + y2) / 2, (x2 - x1) * scale / 2, (y2 - y1) * scale / 2
+    return [round(cx - half_w), round(cy - half_h), round(cx + half_w), round(cy + half_h)]
+
+
+def needs_detectors(plan: dict, instruction: str = "") -> bool:
+    return plan["op"] != "add" or bool(plan.get("anchor") or plan.get("keep") or body_part(instruction))
+
+
+def sample_mask(grounder, image, plan: dict, instruction: str = ""):
+    """(mask or None, boxes) of one plan; `instruction` is the sample's (for BODY_PARTS)."""
     from PIL import ImageChops, ImageOps
 
     op = plan["op"]
@@ -180,6 +216,11 @@ def sample_mask(grounder, image, plan: dict):
     if op == "background" and not keep:                   # plan_v2: the subjects to keep were the targets
         keep, keep_qwen = plan["targets"], plan.get("target_boxes")
     if op == "add":
+        part = body_part(instruction)
+        if part:                                      # the face or head inside Qwen's anchor (or free) box
+            pairs = [(k, b) for k, b in zip(keep, keep_qwen or [None] * len(keep)) if k != plan.get("anchor")]
+            keep, keep_qwen = [k for k, _ in pairs], [b for _, b in pairs]
+            plan = {**plan, "anchor": part, "anchor_box": plan.get("anchor_box") or plan.get("box")}
         if plan.get("anchor"):
             anchor = locate(grounder, image, [plan["anchor"]], [plan.get("anchor_box")])
             if not anchor:
@@ -189,6 +230,7 @@ def sample_mask(grounder, image, plan: dict):
             region, boxes = plan["box"], [[*plan["box"], 1.0, "new", "plan"]]
         else:
             return None, []
+        region = capped(region, image.size)
         mask = box_mask(image.size, [region])
         if keep:
             centre = [(region[0] + region[2]) / 2, (region[1] + region[3]) / 2] * 2
@@ -233,11 +275,11 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None
             continue                                  # not recorded: a later run picks it up
         with Image.open(SAMPLES_DIR / sample["id"] / "original.jpg") as im:
             image = im.convert("RGB")
-        if grounder is None and needs_detectors(plan):
+        if grounder is None and needs_detectors(plan, sample["instruction"]):
             grounder = Grounder()
             grounder.load(device)
             print(f"loaded Grounding DINO and SAM 2.1 on {device}", flush=True)
-        mask, boxes = sample_mask(grounder, image, plan)
+        mask, boxes = sample_mask(grounder, image, plan, sample["instruction"])
         row = {"id": sample["id"], "op": plan["op"], "plan": prompt_id(version), "grounding": GROUNDING,
                "digest": None, "boxes": boxes}
         if mask is None or not mask.getbbox():

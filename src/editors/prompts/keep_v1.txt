@@ -1,0 +1,10 @@
+A user posted this photo and asked: "$instruction"
+
+The background of the photo will be repainted. Name every subject in front that must stay unchanged: the main
+object or objects of the photo (a product, a shoe, a car) and every person or animal in front. Each one is a short
+English noun phrase that names it as it looks in the photo ("the shoe", "the woman in the red dress"), with its box
+in pixel coordinates of the image you see. Answer with one JSON object:
+
+{"keep": [{"phrase": "...", "bbox_2d": [x1, y1, x2, y2]}, ...]}
+
+Answer with the JSON object only.

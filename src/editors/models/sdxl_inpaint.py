@@ -6,12 +6,17 @@ long side at 1,024 px and both sides a multiple of 8, so it is not distorted. Th
 of what to paint (plan.py): for Add the mask is the plan's box, for Replace the segmented object. The VAE runs in
 fp16 (its config has `force_upcast: false`, as RORem's and ObjectClear's): if it overflows (black or NaN images,
 MODEL_LIST.md), the runner records them as "black"; the fix is then to load madebyollin/sdxl-vae-fp16-fix.
+
+Settings version 2: strength 1.0 for the background op. At 0.99 the masked background keeps a trace of the original
+(the run of 2026-11-21: the sky stayed sky, no mushroom cloud was painted); a new background must not depend on
+the old one. Add and replace keep the card's 0.99.
 """
 
 from ..base import Editor
 
 MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
 LONG_SIDE = 1024
+STRENGTH = {"background": 1.0}      # by op; others 0.99 (the card)
 
 
 def working_size(width: int, height: int, long_side: int = LONG_SIDE) -> tuple[int, int]:
@@ -23,7 +28,9 @@ class SDXLInpaint(Editor):
     name = "sdxl-inpaint"
     model_id = f"{MODEL} (fp16 variant)"
     tasks = ("add_replace",)
-    settings = {"long_side": LONG_SIDE, "steps": 20, "guidance": 8.0, "strength": 0.99, "prompt": "plan"}
+    settings_version = 2
+    settings = {"long_side": LONG_SIDE, "steps": 20, "guidance": 8.0, "strength": 0.99,
+                "strength_by_op": STRENGTH, "prompt": "plan"}
 
     def load(self, device: str) -> None:
         import torch
@@ -42,5 +49,6 @@ class SDXLInpaint(Editor):
         generator = self.torch.Generator(device=self.device).manual_seed(seed)
         return self.pipe(prompt=prompt, image=image.resize((width, height), Image.Resampling.BICUBIC),
                          mask_image=mask.resize((width, height), Image.Resampling.NEAREST), height=height,
-                         width=width, guidance_scale=8.0, num_inference_steps=20, strength=0.99,
+                         width=width, guidance_scale=8.0, num_inference_steps=20,
+                         strength=STRENGTH.get(self.op, 0.99),
                          generator=generator).images[0]
