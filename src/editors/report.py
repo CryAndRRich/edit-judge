@@ -19,7 +19,7 @@ import statistics
 from ..common.dataset import iter_samples
 from ..common.io import iter_jsonl
 from ..paths import EDITORS_DIR, SAMPLES_DIR
-from . import editors_of
+from . import editors_of, get_editor
 from .base import load_runs, output_path, summary
 from .grounding import load_masks, mask_path
 from .plan import DEFAULT_CLIENT, load_plans, plan_version
@@ -80,13 +80,20 @@ def best_human_edits(ids: set[str]) -> dict[str, str]:
     return {s["id"]: top_human(s["pairs"]) for s in iter_samples() if s["id"] in ids}
 
 
-def contact_sheets(task: str, samples: list[dict], models: list[str]) -> list:
+def contact_sheets(task: str, samples: list[dict], models: list[str], version: int) -> list:
+    """Sheets of the samples that have a plan; a mask or an output is shown only when it is current (the mask of
+    this plan version and grounding rules, an ok output made from it), never an older file left on disk."""
     from PIL import Image
 
+    masks = load_masks(version)
+    runs = {name: load_runs(name, version) for name in models}
+    samples = [s for s in samples if s["id"] in masks]
     top = best_human_edits({s["id"] for s in samples})
     scores = load_scores(task)
     folder = EDITORS_DIR / task / "sheets"
     folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob("sheet-*.jpg"):
+        old.unlink()
     columns = 3 + len(models)
     written = []
     for start in range(0, len(samples), ROWS_PER_SHEET):
@@ -97,12 +104,15 @@ def contact_sheets(task: str, samples: list[dict], models: list[str]) -> list:
             original = SAMPLES_DIR / sid / "original.jpg"
             human = top.get(sid)
             tiles = [tile(original, f"{sid} {sample['op']}"),
-                     tile(original, "mask", mask_path(sid)),
+                     tile(original, f"mask {masks[sid]['status']}",
+                          mask_path(sid) if masks[sid]["status"] == "ok" else None),
                      tile(SAMPLES_DIR / sid / f"{human}.jpg" if human else None,
                           f"best human {human or ''} {scores.get(sid, {}).get(f'human:{human}', '')}")]
             for name in models:
                 value = scores.get(sid, {}).get(f"model:{name}")
-                tiles.append(tile(output_path(name, sid), f"{name} {'' if value is None else value}"))
+                status = runs[name].get(sid, {}).get("status", "-")
+                tiles.append(tile(output_path(name, sid) if status == "ok" else None,
+                                  f"{name} {status if status != 'ok' else ''} {'' if value is None else value}"))
             for column, image in enumerate(tiles):
                 sheet.paste(image, (column * TILE, row * (TILE + 16)))
         path = folder / f"sheet-{start // ROWS_PER_SHEET + 1:02d}.jpg"
@@ -137,11 +147,14 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = N
                                           f"/{sum(m['op'] == op for m in masks.values())}" for op in ops),
               "Boxes from: " + ", ".join(f"{k} {v}" for k, v in sorted(by_source.items())) +
               " (dino: Grounding DINO inside Qwen's box; qwen: Qwen's box, DINO found nothing there; plan: add)"]
-    lines += ["", "## Runs", "", "| Model | Ok | Failed | Black | No mask | Median s / image | Peak GPU GB |",
-              "|---|---|---|---|---|---|---|"]
+    lines += ["", "## Runs", "",
+              "| Model | Input | Ok | Failed | Black | No mask | n/a | Median s / image | Peak GPU GB |",
+              "|---|---|---|---|---|---|---|---|---|"]
     for name in models:
         s = summary(name, task, samples, version)
-        lines.append(f"| {name} | {s['ok']} | {s['failed']} | {s['black']} | {s['no-mask']} | "
+        editor = get_editor(name)
+        kind = ("mask" if editor.uses_mask else "instruction") + (f" ({', '.join(editor.ops)})" if editor.ops else "")
+        lines.append(f"| {name} | {kind} | {s['ok']} | {s['failed']} | {s['black']} | {s['no-mask']} | {s['n/a']} | "
                      f"{s['median_seconds'] if s['median_seconds'] is not None else '-'} | "
                      f"{s['gpu_peak_gb'] if s['gpu_peak_gb'] is not None else '-'} |")
     failures = [(name, r) for name in models for r in load_runs(name, version).values()
@@ -158,7 +171,7 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = N
                          f"{percent(m['beats_humans'])} | {percent(m['best_model'])} |")
         lines += ["", "The scorer learned from human edits; check the contact sheets before trusting these shares."]
     if sheets:
-        written = contact_sheets(task, samples, models)
+        written = contact_sheets(task, samples, models, version)
         lines += ["", "## Contact sheets (team only)", ""] + [f"- `{p.relative_to(EDITORS_DIR)}`" for p in written]
     text = "\n".join(lines) + "\n"
     out = EDITORS_DIR / task / "report.md"

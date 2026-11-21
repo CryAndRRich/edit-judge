@@ -524,8 +524,9 @@ Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.jso
 ## Editing models (`src.editors`)
 
 The models of `MODEL_LIST.md`, run on a small fixed set of dev samples and judged by the scorer. So far lists 2
-(Remove: `lama`, `rorem`, `objectclear`) and 3 (Add/Replace: `sdxl-inpaint`). All of them are inpainting models,
-so every sample needs a mask first.
+(Remove: `lama`, `migan`, `rorem`, `objectclear`, `osor`) and 3 (Add/Replace: `sdxl-inpaint`, and the mask-free
+`paint-by-inpaint`, `erasedraw`, which add objects from the instruction alone, on the add samples only). The
+inpainting models need a mask for every sample; the mask-free ones get the instruction instead.
 
 ```bash
 python -m src.editors samples --task remove          # 30 dev samples with a "Remove <subject>" category (laptop)
@@ -552,8 +553,9 @@ python -m src.editors report --task remove           # work/editors/remove/repor
   8 px (replace); for `background` the kept subjects' mask is inverted; for Add, a rectangle around the anchor
   (or the free box) minus the kept things. A sample where nothing is found is `no-mask`.
   Masks record their plan version, and a mask or an output of an older plan version is made again.
-- **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`) in its own
-  file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. Outputs are resized back to
+- **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`; `uses_mask`,
+  `ops`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
+  records the digest of the mask it was made from, so only samples whose mask changed are run again. Outputs are resized back to
   the original size, and only the masked region is kept (pasted back on the original over a 3 px soft edge), so
   models working at 512 px are not judged on a resampled photo. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
 - **Scores and report** (`score.py`, `report.py`): every output is scored together with the human edits of its

@@ -7,7 +7,9 @@ on its boxes:
 - the plan's own box for the target (Qwen2.5-VL's grounding) says which of them are meant: DINO boxes whose centre
   lies in Qwen's box (grown by 10%) are kept, so "the letters DB" keeps both letters and "the man on the left"
   keeps one man. When DINO finds none there, Qwen's box is used (small things such as "the beer can"); when the
-  plan has no box for the target, DINO's best box.
+  plan has no box for the target, DINO's best box. When some targets of a list have Qwen boxes and others do not,
+  the ones without are dropped: in the full remove run (2026-11-21) they were the extras Qwen added by mistake
+  ("remove the cup" + "the table", "remove the leash" + "the dog"), and DINO then removed the whole table or dog.
 SAM 2.1 large turns the kept boxes into masks (`input_boxes`, `multimask_output=False`); the sample's mask is their
 union. Then by op:
 - remove: grown by 15 px (edges and shadows must go too); replace: grown by 8 px;
@@ -20,7 +22,8 @@ union. Then by op:
 Both detectors run in float32 (0.9 GB each; T4 has no fast bfloat16). Every model gets the same mask.
 
 Output: work/editors/masks/<sample id>.png (L, 255 = repaint) and masks.jsonl, one row per sample: {"id", "op",
-"status" (ok | no-mask), "plan" (the prompt version of the plan), "boxes": [[x1, y1, x2, y2, score, phrase, source (dino | qwen | plan)]], "coverage" (share
+"status" (ok | no-mask), "plan" (the prompt version of the plan), "grounding" (GROUNDING, the version of these rules),
+"digest" (SHA-1 of the mask's pixels; outputs record it, base.py), "boxes": [[x1, y1, x2, y2, score, phrase, source (dino | qwen | plan)]], "coverage" (share
 of the image masked)}. A sample where nothing is found is "no-mask"; the editors skip it and record that.
 """
 
@@ -42,6 +45,8 @@ MAX_BOXES = 6
 DILATE = {"remove": 15, "replace": 8, "add": 0, "background": 0}
 KEEP_EDGE = 4                   # pixels added around kept things before they are cut out of the mask
 ANCHOR_GROW = 0.25              # add: share of the anchor's size added on every side
+GROUNDING = 2                   # version of the rules above; masks of an older version are made again
+                                # (2: targets without a Qwen box are dropped when others have one)
 MASKS_DIR = EDITORS_DIR / "masks"
 MASKS_INDEX = MASKS_DIR / "masks.jsonl"
 
@@ -53,7 +58,14 @@ def mask_path(sample_id: str):
 def load_masks(version: int = DEFAULT_VERSION) -> dict[str, dict]:
     """Sample ID -> its mask row, only masks made from plans of prompt version `version` (a mask of an older plan
     is made again; the last row wins)."""
-    return {row["id"]: row for row in iter_jsonl(MASKS_INDEX) if row.get("plan", "plan_v1") == prompt_id(version)}
+    return {row["id"]: row for row in iter_jsonl(MASKS_INDEX)
+            if row.get("plan", "plan_v1") == prompt_id(version) and row.get("grounding", 1) == GROUNDING}
+
+
+def mask_digest(mask) -> str:
+    """SHA-1 of a mask's size and pixels (so an unchanged mask keeps its digest)."""
+    import hashlib
+    return hashlib.sha1(f"{mask.size}".encode() + mask.tobytes()).hexdigest()[:16]
 
 
 def dino_text(phrase: str) -> str:
@@ -135,9 +147,14 @@ class Grounder:
 
 
 def locate(grounder, image, phrases: list[str], qwen_boxes: list | None) -> list[list]:
-    """The boxes of every phrase (choose_boxes), in order."""
+    """The boxes of every phrase (choose_boxes), in order. Phrases without a Qwen box are dropped when another
+    phrase of the list has one."""
+    qwen_boxes = list(qwen_boxes or [None] * len(phrases))
+    if any(box is not None for box in qwen_boxes):
+        kept = [(p, b) for p, b in zip(phrases, qwen_boxes) if b is not None]
+        phrases, qwen_boxes = [p for p, _ in kept], [b for _, b in kept]
     boxes = []
-    for phrase, qwen_box in zip(phrases, qwen_boxes or [None] * len(phrases)):
+    for phrase, qwen_box in zip(phrases, qwen_boxes):
         boxes += choose_boxes(grounder.find(image, phrase), qwen_box, phrase)
     return boxes
 
@@ -221,14 +238,16 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None
             grounder.load(device)
             print(f"loaded Grounding DINO and SAM 2.1 on {device}", flush=True)
         mask, boxes = sample_mask(grounder, image, plan)
-        row = {"id": sample["id"], "op": plan["op"], "plan": prompt_id(version), "boxes": boxes}
+        row = {"id": sample["id"], "op": plan["op"], "plan": prompt_id(version), "grounding": GROUNDING,
+               "digest": None, "boxes": boxes}
         if mask is None or not mask.getbbox():
             row.update(status="no-mask", coverage=0.0)
         else:
             mask = dilate(mask, DILATE[plan["op"]])
             mask_path(sample["id"]).parent.mkdir(parents=True, exist_ok=True)
             mask.save(mask_path(sample["id"]))
-            row.update(status="ok", coverage=round(mask.histogram()[255] / (image.width * image.height), 4))
+            row.update(status="ok", coverage=round(mask.histogram()[255] / (image.width * image.height), 4),
+                       digest=mask_digest(mask))
         counts[row["status"]] += 1
         append_jsonl(MASKS_INDEX, [row])
         sources = ",".join(sorted({b[-1] for b in boxes})) or "-"            # e.g. dino, qwen, anchor:dino, keep:qwen

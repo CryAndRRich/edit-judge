@@ -24,9 +24,13 @@ TASKS = ("remove", "add_replace")
 
 EDITORS: dict[str, str] = {
     "lama": ".models.lama:Lama",                        # list 2, classic (WACV 2022)
+    "migan": ".models.migan:MIGAN",                     # list 2, light GAN (ICCV 2023)
     "rorem": ".models.rorem:RORem",                     # list 2 (CVPR 2025)
     "objectclear": ".models.objectclear:ObjectClear",   # list 2 (CVPR 2026)
+    "osor": ".models.osor:OSOR",                        # list 2, one step (ECCV 2026)
     "sdxl-inpaint": ".models.sdxl_inpaint:SDXLInpaint",  # list 3 (and list 6, 7 later)
+    "paint-by-inpaint": ".models.instruct_add:PaintByInpaint",   # list 3, mask-free addition (CVPR 2025)
+    "erasedraw": ".models.instruct_add:EraseDraw",      # list 3, mask-free addition (ECCV 2024)
 }
 
 
