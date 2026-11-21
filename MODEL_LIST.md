@@ -113,7 +113,7 @@ All of these need a mask (see Grounding).
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| SDXL Inpainting 0.1 | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ (card: research use) | easy | `AutoPipelineForInpainting`, `variant="fp16"`; long side 1024 (aspect kept), 20 steps, guidance 8.0, strength 0.99 (the card says 1.0 lowers quality). White in the mask = repaint. For Add, the mask is a box around the anchor (the existing thing the new one goes on) or Qwen's free box, minus the things to keep. Smoke runs: it often ignores the prompt when it repaints a large background ("a galaxy" gave a plain white background). |
+| SDXL Inpainting 0.1 | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ (card: research use) | easy | `AutoPipelineForInpainting`, `variant="fp16"`; long side 1024 (aspect kept), 20 steps, guidance 8.0, strength 0.99 (the card says 1.0 lowers quality). White in the mask = repaint. For Add, the mask is a box around the anchor (the existing thing the new one goes on) or Qwen's free box, minus the things to keep. Smoke runs: it often ignored the prompt when it repainted a large background ("a galaxy" gave a plain white background); strength 1.0 for the background op fixed it (full run, 2026-11-21). |
 | Paint by Inpaint *(added 2026-11-21)* | CVPR 2025 | hf:paint-by-inpaint/add-finetuned-mb, gh:RotsteinNoam/Paint-by-Inpaint | 2.1 (already fp16) | MIT | easy | **Mask-free**: adds an object from the instruction alone and places it itself (trained on PIPE, 1M pairs made by removing objects; this variant fine-tuned on MagicBrush additions). `StableDiffusionInstructPix2PixPipeline`, Euler Ancestral, 50 steps, guidance 7, image guidance 1.5 (README). Long side 512. Add samples only. |
 | EraseDraw v0.2 *(added 2026-11-21)* | ECCV 2024 | hf:alpercanberk/erasedraw-v0.2 | 2.1 (stored fp32, 4.3) | MIT | easy | **Mask-free** addition, the same pipeline; 10 steps, image guidance 1, guidance 7.5 (model card). The card says code is "coming soon"; the weights run without it. Long side 512. Add samples only. |
 
@@ -262,12 +262,21 @@ Lists 2 and 3 run with `src/editors` and `notebooks/editors_remove_add.ipynb` (2
 
 | Model | Member | Smoke | Full run |
 |---|---|---|---|
-| LaMa (big-lama) | | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.7 s, 1.1 GB |
-| MI-GAN | | code ready (CPU check on synthetic images: 0.9 s per image on CPU) | |
-| RORem | | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 6.6 s, 7.7 GB |
-| ObjectClear | | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 7.8 s, 9.0 GB. Sometimes writes stray text or smudges when removing text |
-| OSOR-SDXL-Inpainting | | code ready (checkpoint layout checked) | |
-| SDXL Inpainting 0.1 (Add/Replace) | | ok (2026-11-21, plan_v3): 4 ok, 1 no mask; 13.9 s, 9.1 GB. Weak on Add placement and on large backgrounds | |
-| Paint by Inpaint | | code ready | |
-| EraseDraw v0.2 | | code ready | |
-| Grounding DINO base + SAM 2.1 large | | ok | remove: 28 of 30 masks (2 not found). Rules v2 (2026-11-21) drop targets that Qwen listed without a box |
+| LaMa (big-lama) | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.66 s, 1.1 GB. Small objects fine; large regions smeared |
+| MI-GAN | Kiên Vũ | ok (2026-11-21) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.09 s, 0.24 GB. On par with LaMa; large regions smeared |
+| RORem | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 7.4 s, 7.7 GB. Good |
+| ObjectClear | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 9.1 s, 9.0 GB. Good; sometimes writes stray text or smudges when removing text |
+| OSOR-SDXL-Inpainting | Kiên Vũ | ok (2026-11-21; fp16 works, no black images) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.86 s, 8.2 GB. Cleanest of the five on the contact sheets (cone, people at a waterfall, leash) and 10 x faster than RORem |
+| SDXL Inpainting 0.1 (Add/Replace) | Kiên Vũ | ok (2026-11-21, plan_v3) | add_replace, 30 samples (2026-11-21): 29 ok, 1 no mask; 13.7 s, 9.6 GB. Good on Replace of small objects and text (sapphire to diamond, "Moonlight" to "Son of Saul") and on anchored additions (beard, hat); strength 1.0 for backgrounds fixed the ignored prompt. Weak where Qwen's free Add box is wrong |
+| Paint by Inpaint | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 8.9 s, 2.8 GB. Places the new thing itself, often better than a wrong Add box (beach ball, ghosts); sometimes changes the whole photo |
+| EraseDraw v0.2 | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 1.9 s, 2.8 GB. Fast; additions often small or misplaced, sometimes off-colour |
+| Grounding DINO base + SAM 2.1 large | Kiên Vũ | ok | remove: 28 of 30 masks (2 not found: "three blotches", "the stand"); add_replace: 29 of 30 (Qwen named no target for a logo). Rules v3 (2026-11-21): additions worn on a face or head are anchored on it; Add boxes capped at 30% of the image; a background plan with nothing to keep is asked again |
+
+Findings of the full runs (2026-11-21; no scores yet, the scorer is built separately: judged on the contact sheets):
+- Remove: OSOR first (fast and clean), then RORem and ObjectClear; LaMa and MI-GAN are the fast baselines.
+- Add/Replace: SDXL Inpainting for Replace and anchored additions; for free additions the mask-free models (Paint by
+  Inpaint, EraseDraw) avoid the VLM's poor placement.
+- Most remaining errors come from the plan, not the editors: Qwen sometimes reads an addition as a replacement
+  ("Photoshop Ronald McDonald into the photo" replaced the young man), adds extra targets ("the dog" for "remove
+  the leash", "the Christmas tree" for "make the dog look like Dobby"), or places a free Add box badly (a Rolls
+  Royce box of 1% at the man's feet).

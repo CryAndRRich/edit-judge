@@ -13,7 +13,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
-| 4. Editing models per operation, and their benchmark | `src/editors` | Lists 2 (Remove) and 3 (Add/Replace) of `MODEL_LIST.md`: samples, plans, masks, runner, scores and report written; smoke run on Kaggle pending |
+| 4. Editing models per operation, and their benchmark | `src/editors` | Lists 2 (Remove) and 3 (Add/Replace) of `MODEL_LIST.md`: 8 models (5 Remove, 3 Add/Replace) run on 30 dev samples per task (2026-11-21); scores wait for the scorer |
 | 5. The editing assistant | (no code yet) | Planned |
 
 ## Repository layout
