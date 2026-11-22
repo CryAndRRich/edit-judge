@@ -1,3 +1,0 @@
-model,images,ssim_luma,delta_red_minus_blue,delta_luma
-instruct-pix2pix,5,0.330711,41.876804,-13.89702
-magicbrush,5,0.224714,15.248823,-9.569637
