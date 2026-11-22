@@ -1,0 +1,8 @@
+diffusers==0.35.1
+transformers==4.57.1
+accelerate==1.11.0
+huggingface-hub>=0.34.3,<1
+safetensors>=0.4.3
+Pillow>=10.1
+scikit-image>=0.24,<0.27
+
