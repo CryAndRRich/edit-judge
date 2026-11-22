@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Edit-Judge Studio</title>
+  <meta name="description" content="Route an editing instruction to the right models, run them, and let the scorer pick the best edit.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%238b5cf6'/%3E%3Cstop offset='1' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M9 22l5-6 4 4 5-8' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css?v={{ version }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-6 4 4 7-9"/></svg>
+      </div>
+      <div>Edit-Judge Studio<small>Instruction routing · 23 candidate models · auto-selection</small></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="pills">
+      <span class="pill" id="pill-scorer" title="{{ scorer.fallback_reason or '' }}">
+        <span class="dot {{ 'ok' if scorer.kind == 'reward_model' else 'warn' }}"></span><span class="pill-label">Scorer</span> <b>{{ scorer.label }}</b>
+      </span>
+      <span class="pill pill-optional" id="pill-device"><span class="dot"></span>Device <b>…</b></span>
+      <span class="pill pill-optional" id="pill-models"><span class="dot ok"></span><b>23</b> models</span>
+      <a class="pill pill-optional" href="/docs" target="_blank" rel="noopener">API docs ↗</a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ================= control panel ================= -->
+    <aside class="sidebar" aria-label="Controls">
+      <section class="glass panel">
+        <h2 class="section-title"><span class="step">1</span>Source image<span class="right faint" id="img-dims"></span></h2>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload an image: drop a file or press Enter to browse">
+          <div class="dz-empty" id="dz-empty">
+            <div class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+            <div class="dz-title">Drop an image here</div>
+            <div class="dz-hint">or click to browse · JPEG, PNG, WebP, BMP, TIFF · up to 25 MB</div>
+          </div>
+          <div class="dz-preview hidden" id="dz-preview">
+            <img id="dz-img" alt="Selected source image">
+            <div class="dz-meta">
+              <span class="name" id="dz-name"></span>
+              <button class="icon-btn" id="dz-clear" type="button" title="Remove image" aria-label="Remove image">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+          <input type="file" id="file-input" accept="image/*" class="sr-only" tabindex="-1">
+        </div>
+        <div class="section-title" style="margin-top:16px;margin-bottom:0">Or try a sample photo<span class="right faint" id="samples-note"></span></div>
+        <div class="samples" id="samples"></div>
+      </section>
+
+      <section class="glass panel">
+        <h2 class="section-title"><span class="step">2</span>Instruction<span class="right faint">English · Tiếng Việt</span></h2>
+        <div class="prompt-wrap">
+          <label for="instruction" class="sr-only">Editing instruction</label>
+          <textarea id="instruction" maxlength="500" placeholder="Describe the edit… e.g. “Make the photo brighter and more vivid” or “Xóa phông nền”"></textarea>
+          <div class="prompt-foot"><span><span class="kbd">⌘</span> + <span class="kbd">Enter</span> to run</span><span id="char-count">0 / 500</span></div>
+        </div>
+        <div class="quick chips" id="quick-tags"></div>
+        <div class="route-box" id="route-box" aria-live="polite">
+          <div class="row"><span class="label">Routing</span><span class="faint" style="font-size:12px">Type an instruction to see which models will run.</span></div>
+        </div>
+        <button class="run-btn" id="run-btn" type="button" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span id="run-label">Run Models</span>
+        </button>
+        <div class="progress hidden" id="progress">
+          <div class="progress-head"><span id="progress-text">Starting…</span><span class="mono" id="progress-count"></span></div>
+          <div class="bar-track"><div class="bar-fill" id="progress-bar"></div></div>
+          <div class="model-states" id="model-states"></div>
+        </div>
+      </section>
+      <p class="foot">Outputs marked <span class="badge mock">MOCK</span> are simulations until the model weights are wired in. <span class="badge real">REAL</span> models run on this machine.</p>
+    </aside>
+
+    <!-- ================= results ================= -->
+    <main class="main" id="main">
+      <section class="glass empty" id="empty-state">
+        <span class="badge cat">AI Image Editing Benchmark & Auto-Selection</span>
+        <h2>One instruction. <span class="gradient-text">Every model. The best edit.</span></h2>
+        <p>Upload a photo and describe the edit. The router picks the candidate models (generalists plus the specialists of the task), runs them side by side, scores each result against the untouched photo, and crowns the winner.</p>
+        <div class="steps">
+          <div class="s"><span class="n">01 · ROUTE</span><b>Read the request</b><span>English and Vietnamese keywords → 7 task lists</span></div>
+          <div class="s"><span class="n">02 · RUN</span><b>Edit in parallel</b><span>Generalists + specialists from MODEL_LIST.md</span></div>
+          <div class="s"><span class="n">03 · SCORE</span><b>Gain vs. original</b><span>EditReward when a GPU allows, else the proxy</span></div>
+          <div class="s"><span class="n">04 · PICK</span><b>Crown the winner</b><span>Compare, zoom and download every candidate</span></div>
+        </div>
+      </section>
+
+      <section class="glass live hidden" id="live" aria-live="polite">
+        <div class="live-head"><span class="pulse"></span><h2 id="live-title">Running candidate models…</h2><span class="faint mono" id="live-count" style="margin-left:auto"></span></div>
+        <div class="live-grid" id="live-grid"></div>
+      </section>
+
+      <div id="results" class="hidden" style="display:flex;flex-direction:column;gap:20px">
+        <section class="glass hero" id="hero"></section>
+        <section class="stats" id="stats"></section>
+        <section class="toolbar">
+          <div class="chips" id="filters"></div>
+          <div class="spacer"></div>
+          <div class="segmented" id="sorts" role="group" aria-label="Sort candidates">
+            <button data-sort="score" class="active">Score</button>
+            <button data-sort="speed">Speed</button>
+            <button data-sort="name">Name</button>
+          </div>
+        </section>
+        <section class="grid" id="grid" aria-label="Candidate models"></section>
+        <details class="glass table-wrap" id="table-wrap">
+          <summary><span class="chev">▶</span>Leaderboard · detailed scores <span class="faint" style="font-weight:400;font-size:12px" id="table-note"></span></summary>
+          <div class="table-scroll"><table class="lb" id="table"></table></div>
+        </details>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"></div>
+  <div class="toasts" id="toasts" aria-live="assertive"></div>
+
+  <script>window.EJ = { version: "{{ version }}" };</script>
+  <script src="/static/js/app.js?v={{ version }}"></script>
+</body>
+</html>
