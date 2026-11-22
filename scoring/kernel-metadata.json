@@ -1,0 +1,13 @@
+{
+  "id": "stevenpaulli/enhance-models-scoring",
+  "title": "Enhance Models Scoring",
+  "code_file": "score_runner.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": ["stevenpaulli/enhance-models-benchmark"]
+}
