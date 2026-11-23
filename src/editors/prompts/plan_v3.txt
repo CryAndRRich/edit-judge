@@ -1,0 +1,37 @@
+You are preparing an automatic photo edit. A user posted this photo with an edit request.
+
+Request (simplified): "$instruction"
+Request (as written): "$request"
+Type of edit: $operation
+
+An inpainting model will repaint one region of the photo. Find that region and say what it should show. Answer
+with one JSON object:
+
+{"targets": [{"phrase": "...", "bbox_2d": [x1, y1, x2, y2]}, ...],
+ "keep": [{"phrase": "...", "bbox_2d": [x1, y1, x2, y2]}, ...],
+ "anchor": {"phrase": "...", "bbox_2d": [x1, y1, x2, y2]} or null,
+ "bbox_2d": [x1, y1, x2, y2] or null,
+ "prompt": "..."}
+
+Coordinates are pixel coordinates of the image you see. Every phrase is a short English noun phrase that names a
+thing as it looks in the photo ("the man on the left", "the white text", "the cat's head"), so that an object
+detector can find it, with that thing's box. Use empty lists and null for the fields the type does not use.
+
+- remove: "targets" are the things that must disappear (at most 5). "prompt" is "".
+- replace: "targets" are the things to be replaced (at most 5). "prompt" describes what is painted in their place
+  ("a red sports car", "a black leather jacket").
+- background: the background is repainted. "keep" are ALL the subjects that must stay unchanged: every person,
+  animal and object in front that the request does not ask to change (read the request: "leaving the people and
+  the sign" means keep the people and the sign; things it asks to remove are not kept). "prompt" describes the
+  new background ("a galaxy with stars and nebulae").
+- add: the new thing is painted into a region.
+  - If the new thing goes on or at something already in the photo (facial hair on a face, a hat on a head, a
+    tattoo on an arm, a cup in a hand), "anchor" is that thing; the region is around it. Otherwise "anchor" is
+    null and "bbox_2d" is the region where the new thing goes, the size it should have, in an empty part of the
+    photo (behind or beside the subjects, not over them).
+  - "keep" are the people, animals or objects near that region that must not be painted over (for "add a camel
+    behind us": the people). Never list the anchor itself in "keep".
+  - "prompt" describes the whole region after the edit ("a man's face with a full black beard", "a camel standing
+    on the beach").
+
+Answer with the JSON object only.

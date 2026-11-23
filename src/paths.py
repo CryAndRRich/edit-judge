@@ -40,6 +40,7 @@ RANKING_APP = REPO_ROOT / "apps" / "ranking"  # the standalone app annotators ru
 FILTERS_DIR = OUTPUT_DIR / "filters"          # detector scores and decisions: filters/<task>/<model>.jsonl
 INSTRUCTIONS_DIR = OUTPUT_DIR / "instructions"  # LLM/VLM analyses of the requests
 SCORER_DIR = OUTPUT_DIR / "scorer"            # scorer datasets, runs and reports
+EDITORS_DIR = OUTPUT_DIR / "editors"          # editing models: samples, plans, masks, outputs, scores, reports
 MODELS_DIR = Path(os.environ.get("EJ_MODELS_DIR") or OUTPUT_DIR / "models")  # downloaded model weights
 
 # Paths stored in crawl databases, the ledger and the provenance index ("raw/<source>/...") were relative to the

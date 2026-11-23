@@ -1,0 +1,12 @@
+# Extra packages of the editing models (src/editors), beyond requirements-ml.txt. Kaggle only; this file is the
+# record, the notebook (notebooks/editors_remove_add.ipynb) installs them.
+-r requirements-ml.txt
+transformers>=4.56,<5     # Sam2Model / Sam2Processor (SAM 2.1) need 4.56; Grounding DINO, Qwen2.5-VL
+diffusers>=0.35,<0.40     # AutoPipelineForInpainting: RORem, SDXL Inpainting 0.1; ObjectClear's pipeline.
+                          # 0.40+ needs huggingface-hub >= 1.23, which transformers < 5 does not allow (< 1.0)
+huggingface_hub
+safetensors
+peft>=0.14                # osor: LoRA layers on the SDXL-Inpainting UNet
+opencv-python-headless    # imported by ObjectClear's code (downloaded at a pinned commit, not pip-installed)
+# lama: big-lama.pt (TorchScript) from simple-lama-inpainting release v0.1.0, loaded with torch.jit; no package
+# migan: migan_traced.pt (TorchScript) from Sanster/models release "migan", loaded with torch.jit; no package

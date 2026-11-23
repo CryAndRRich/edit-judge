@@ -8,7 +8,7 @@ There are 7 lists:
 
 The tasks Open-Ended and Other use the shared list only. A grounding step makes the masks that some specialists need.
 
-Every model below was checked on 2026-11-17 against its Hugging Face API file list, its model card and its GitHub repository. Each model had its own check. Nothing has been run yet, so the first smoke run of each model is still the real test.
+Every model below was checked on 2026-11-17 against its Hugging Face API file list, its model card and its GitHub repository. Each model had its own check. Lists 2 and 3 were extended on 2026-11-21 after a second search of CVPR, ICCV, ECCV, NeurIPS and ICLR papers (models marked *added 2026-11-21*; candidates for later are under "Candidates for later"). Lists 2 and 3 run in `src/editors` (status in the table at the end); the other lists have not been run yet.
 
 ## Summary
 
@@ -23,6 +23,7 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 |---|---|---|
 | FLUX 3 Image Klein | 10/2026 | 1 Shared |
 | VAREdit 2B | ICLR 2026 | 1 Shared |
+| OSOR-SDXL-Inpainting | ECCV 2026 | 2 Remove (added 2026-11-21) |
 | ObjectClear | CVPR 2026 | 2 Remove |
 | VOSR 2.0 | CVPR 2026 | 4 Enhance, 5 Restore |
 | AceTone | CVPR 2026 | 4 Enhance (also whole-image tone in 6 Change-Color) |
@@ -31,14 +32,17 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | OmniGen2 | 06/2025 | 1 Shared |
 | RealEdit | CVPR 2025 | 1 Shared (classic) |
 | RORem | CVPR 2025 | 2 Remove |
+| Paint by Inpaint (add-finetuned-mb) | CVPR 2025 | 3 Add (mask-free; added 2026-11-21) |
 | HVI-CIDNet | CVPR 2025 | 4 Enhance |
 | BEN2 | 01/2025 | 7 Image-Formatting |
 | InstantIR | 10/2024 | 5 Restore |
 | InstructIR | ECCV 2024 | 4 Enhance |
+| EraseDraw v0.2 | ECCV 2024 | 3 Add (mask-free; added 2026-11-21) |
 | BiRefNet | 07/2024 | 7 Image-Formatting |
 | MagicBrush | NeurIPS 2023 | 1 Shared (classic) |
 | SDXL Inpainting 0.1 | 09/2023 | 3 Add/Replace, 6 Change-Color (one region), 7 Image-Formatting (outpainting) |
 | DDColor | ICCV 2023 | 6 Change-Color |
+| MI-GAN | ICCV 2023 | 2 Remove (light GAN; added 2026-11-21) |
 | InstructPix2Pix | CVPR 2023 | 1 Shared (classic) |
 | CodeFormer | NeurIPS 2022 | 5 Restore (classic) |
 | LaMa (big-lama) | WACV 2022 | 2 Remove (classic) |
@@ -47,7 +51,7 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | Grounding DINO base | ECCV 2024 | Masks for lists 2, 3, 6 and 7 |
 | SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3, 6 and 7 |
 
-That is 23 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
+That is 27 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
 
 ## Rules
 
@@ -97,8 +101,10 @@ All of these need a mask (see Grounding).
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
+| OSOR-SDXL-Inpainting *(added 2026-11-21)* | ECCV 2026 | hf:QinmingZhou/OSOR (`osor-sdxlinpainting/weights/sdxlinpainting_phase2.pth`), gh:zhouqm-git/osor | 3.1 (rank-256 LoRA + 5-channel conv_out, .pth) on SDXL Inpainting 0.1 (6.9) | code MIT; checkpoint OpenRAIL++-M | medium | **One step** (t = 400), removes shadows and reflections too. Its code imports `src.models...`, which collides with our `src` package, so `src/editors/models/osor.py` re-implements `inference_enhance.py` (UNet + peft LoRA + 5-channel conv_out; the module layout was checked against all 1,544 checkpoint keys). bfloat16 is hard-coded upstream: run in float16. Fixed prompt "Remove the instance of object", shorter side 512. Needs `peft`. |
 | ObjectClear | CVPR 2026 | hf:jixin0101/ObjectClear, gh:zjx0101/ObjectClear | 7.8 | S-Lab, non-commercial | medium | Custom `ObjectClearPipeline` from the GitHub package; `--use_fp16`; shorter side 512, 20 steps, guidance 2.5. Also removes shadows and reflections. The HF weights date from 2025-07; the paper was renamed for CVPR 2026. |
 | RORem | CVPR 2025 | hf:LetsThink/RORem | 6.9 | Apache 2.0 | easy | `AutoPipelineForInpainting` (an SDXL inpainting pipeline); 512 x 512, 50 steps, strength 0.99, guidance 1.0. The card's code has bugs: write the call yourself. The repository's pins (diffusers 0.30) are only needed for training. |
+| MI-GAN *(added 2026-11-21)* | ICCV 2023 | TorchScript `migan_traced.pt` from gh:Sanster/models, release `migan` (27 MB, MD5 76eb3b1a…), as used by IOPaint | 0.03 | MIT | easy | Light GAN distilled from Co-Mod-GAN; a second fast baseline next to LaMa. 512 x 512 only: crop around the mask (128 px margin), scale to 512, pad to a square, input `[0.5 - mask, image * (1 - mask)]` in [-1, 1] (IOPaint's pre-processing). No pip package (iopaint pins clash). |
 | *Classic:* LaMa (big-lama) | WACV 2022 | TorchScript `big-lama.pt` from gh:enesmsahin/simple-lama-inpainting, release v0.1.0 | 0.2 | Apache 2.0 | easy | Load with `torch.jit.load`, without the pip package, whose pins (numpy < 2, pillow < 10) clash with Kaggle. White in the mask = fill. The output is padded to a multiple of 8: crop it back. |
 
 **Remove Background** (1,193 samples) often asks for a plain or white background. The cut-out models of list 7 also run on these samples.
@@ -107,12 +113,14 @@ All of these need a mask (see Grounding).
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| SDXL Inpainting 0.1 | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ (card: research use) | easy | `AutoPipelineForInpainting`, `variant="fp16"`; 1024 x 1024, 20 steps, guidance 8.0, strength 0.99 (the card says 1.0 lowers quality). White in the mask = repaint. For Add, the mask is the box where the new object goes. |
+| SDXL Inpainting 0.1 | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ (card: research use) | easy | `AutoPipelineForInpainting`, `variant="fp16"`; long side 1024 (aspect kept), 20 steps, guidance 8.0, strength 0.99 (the card says 1.0 lowers quality). White in the mask = repaint. For Add, the mask is a box around the anchor (the existing thing the new one goes on) or Qwen's free box, minus the things to keep. Smoke runs: it often ignored the prompt when it repainted a large background ("a galaxy" gave a plain white background); strength 1.0 for the background op fixed it (full run, 2026-11-21). |
+| Paint by Inpaint *(added 2026-11-21)* | CVPR 2025 | hf:paint-by-inpaint/add-finetuned-mb, gh:RotsteinNoam/Paint-by-Inpaint | 2.1 (already fp16) | MIT | easy | **Mask-free**: adds an object from the instruction alone and places it itself (trained on PIPE, 1M pairs made by removing objects; this variant fine-tuned on MagicBrush additions). `StableDiffusionInstructPix2PixPipeline`, Euler Ancestral, 50 steps, guidance 7, image guidance 1.5 (README). Long side 512. Add samples only. |
+| EraseDraw v0.2 *(added 2026-11-21)* | ECCV 2024 | hf:alpercanberk/erasedraw-v0.2 | 2.1 (stored fp32, 4.3) | MIT | easy | **Mask-free** addition, the same pipeline; 10 steps, image guidance 1, guidance 7.5 (model card). The card says code is "coming soon"; the weights run without it. Long side 512. Add samples only. |
 
-**This list has one specialist on purpose.**
-- The insertion models at good conferences in 2025 are LoRAs on 12B FLUX: OmniPaint (ICCV 2025) and ICEdit (NeurIPS 2025). Each is about 34 GB in fp16.
-- The older ones (PowerPaint, BrushNet) are Gradio-only, with old pins.
-- So the shared list does most of the work for Add and Replace. This list checks whether a mask helps.
+**Why two mask-free models were added.**
+- Our mask for Add comes from Qwen2.5-VL: it places existing things well but new things badly (smoke runs of 2026-11-20/21: facial hair boxed on the chest, a camel over a person).
+- Paint by Inpaint and EraseDraw decide the placement themselves, so they test Add without that weakness; SDXL Inpainting tests whether a mask helps.
+- The insertion models built on 12B FLUX (OmniPaint, ICEdit, Add-it) are still too big; PowerPaint and BrushNet are still Gradio-only with old pins.
 
 ## 4. Enhance (quality, sharpness, lighting, colour tone, retouching)
 
@@ -187,7 +195,7 @@ AceTone (list 4) also runs here on requests that change the colour tone of the w
 | PiSA-SR | CVPR 2025 | Built on Stable Diffusion 2.1, whose official Hugging Face repository was removed; only unofficial mirrors remain |
 | HYPIR | SIGGRAPH 2025 | Built on Stable Diffusion 2.1; non-commercial |
 | OSDFace | CVPR 2025 | Built on Stable Diffusion 2.1; aligned 512 px faces only (no detection or paste-back); weights only on Google Drive; non-commercial |
-| SmartEraser | CVPR 2025 | Weights only on Baidu and Google Drive; custom pipeline on diffusers 0.30 and Gradio 3; RORem and ObjectClear cover removal |
+| SmartEraser | CVPR 2025 | Weights only on Baidu and Google Drive; custom pipeline on diffusers 0.30 and Gradio 3; RORem and ObjectClear cover removal. Update 2026-11-21: a third-party HF mirror now exists (see "Candidates for later") |
 | DarkIR | CVPR 2025 | Script hard-codes `CUDA_VISIBLE_DEVICES="1"`; the HF weights do not match the shipped config; HVI-CIDNet covers low light |
 | FLUX.2 [klein] 9B | 01/2026 | 34.7 GB in fp16 (transformer 18.2, text encoder 16.4); gated, non-commercial. Possible later with 8-bit weights |
 | Qwen-Image-2.1 (also Turbo) | 09/2026 | 33.1 GB; needs transformers >= 5.17; examples at 2048 px |
@@ -204,6 +212,22 @@ AceTone (list 4) also runs here on requests that change the colour tone of the w
 | DeOldify | 2019 | Archived; fastai 1.0.60 and torch 1.11 do not run on Python 3.11 |
 | ControlNet Recolor (SDXL) | 2024 | Only a community conversion, no license stated; colourises the whole image only, as DDColor does |
 | Training-free methods | | Left out by choice |
+
+## Candidates for later (search of 2026-11-21)
+
+Checked against their HF file lists, READMEs and venue pages; they fit 2 x T4 in fp16 but need more work than the models added above.
+
+| Model | Date | Task | Weights | Why not yet |
+|---|---|---|---|---|
+| CLIPAway | NeurIPS 2024 | Remove | about 6 GB in fp16 (SD 1.5 inpainting + IP-Adapter + AlphaCLIP); all files in the HF Space yigitekin/CLIPAway | Own venv (diffusers 0.29, torch 2.3), clone AlphaCLIP. A distinct approach (removal in CLIP space) |
+| SmartEraser | CVPR 2025 | Remove | 5.5 GB fp32 on hf:creative-graphic-design/smarteraser-checkpoints (**third-party mirror**, not checked byte for byte against the authors' Drive files) | Own venv (diffusers 0.30), custom pipeline |
+| Attentive Eraser | AAAI 2025 (oral) | Remove | SDXL base | Training-free (left out by choice); a diffusers community pipeline, so easy |
+| SD3 ControlNet Inpainting (alimama-creative) | 2024 release | Replace, background | ControlNet about 2.1 + SD3-Medium (gated, non-commercial research licence) | Needs an HF token with access; the better candidate for backgrounds, where SDXL Inpainting fails |
+| HD-Painter | ICLR 2025 | Add/Replace | SD 1.5 inpainting | Training-free; old pins (torch 2.1, mmcv, xformers) |
+| Diffree | arXiv 2024 | Add | 7.7 GB .ckpt (SD 1.5) | Predicts its own placement mask, which could replace Qwen's for Add; very old pins (torch 2.0, transformers 4.19) |
+| UltraEdit (region) | NeurIPS 2024 | Add/Replace | SD3-Medium, 31 GB stored fp32 | Bundled diffusers fork; T5 on its own GPU |
+
+Rejected in that search: ASUKA (CVPR 2025) and GeoRemover (NeurIPS 2025), FLUX.1-Fill only; Add-it (ICLR 2025), FLUX.1-dev in bfloat16; BrushEdit, MagicQuill (CVPR 2025), InstructAny2Pix: 32 to 66 GB or Gradio-only; LayerDecomp, ObjectDrop, EraDiff, MagicEraser: no weights; TurboClear, MiniMax-Remover, ROSE: speed or video variants of models we have.
 
 ## How to run (summary)
 
@@ -234,6 +258,25 @@ AceTone (list 4) also runs here on requests that change the colour tone of the w
 
 **Never publish outputs of samples that show identifiable people.**
 
+Lists 2 and 3 run with `src/editors` and `notebooks/editors_remove_add.ipynb` (2 x T4, fp16). Times are the median seconds per image after the first one; memory is torch's peak.
+
 | Model | Member | Smoke | Full run |
 |---|---|---|---|
-| | | | |
+| LaMa (big-lama) | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.66 s, 1.1 GB. Small objects fine; large regions smeared |
+| MI-GAN | Kiên Vũ | ok (2026-11-21) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.09 s, 0.24 GB. On par with LaMa; large regions smeared |
+| RORem | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 7.4 s, 7.7 GB. Good |
+| ObjectClear | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 9.1 s, 9.0 GB. Good; sometimes writes stray text or smudges when removing text |
+| OSOR-SDXL-Inpainting | Kiên Vũ | ok (2026-11-21; fp16 works, no black images) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.86 s, 8.2 GB. Cleanest of the five on the contact sheets (cone, people at a waterfall, leash) and 10 x faster than RORem |
+| SDXL Inpainting 0.1 (Add/Replace) | Kiên Vũ | ok (2026-11-21, plan_v3) | add_replace, 30 samples (2026-11-21): 29 ok, 1 no mask; 13.7 s, 9.6 GB. Good on Replace of small objects and text (sapphire to diamond, "Moonlight" to "Son of Saul") and on anchored additions (beard, hat); strength 1.0 for backgrounds fixed the ignored prompt. Weak where Qwen's free Add box is wrong |
+| Paint by Inpaint | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 8.9 s, 2.8 GB. Places the new thing itself, often better than a wrong Add box (beach ball, ghosts); sometimes changes the whole photo |
+| EraseDraw v0.2 | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 1.9 s, 2.8 GB. Fast; additions often small or misplaced, sometimes off-colour |
+| Grounding DINO base + SAM 2.1 large | Kiên Vũ | ok | remove: 28 of 30 masks (2 not found: "three blotches", "the stand"); add_replace: 29 of 30 (Qwen named no target for a logo). Rules v3 (2026-11-21): additions worn on a face or head are anchored on it; Add boxes capped at 30% of the image; a background plan with nothing to keep is asked again |
+
+Findings of the full runs (2026-11-21; no scores yet, the scorer is built separately: judged on the contact sheets):
+- Remove: OSOR first (fast and clean), then RORem and ObjectClear; LaMa and MI-GAN are the fast baselines.
+- Add/Replace: SDXL Inpainting for Replace and anchored additions; for free additions the mask-free models (Paint by
+  Inpaint, EraseDraw) avoid the VLM's poor placement.
+- Most remaining errors come from the plan, not the editors: Qwen sometimes reads an addition as a replacement
+  ("Photoshop Ronald McDonald into the photo" replaced the young man), adds extra targets ("the dog" for "remove
+  the leash", "the Christmas tree" for "make the dog look like Dobby"), or places a free Add box badly (a Rolls
+  Royce box of 1% at the man's feet).

@@ -13,7 +13,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
-| 4. Editing models per operation, and their benchmark | (no code yet) | Planned |
+| 4. Editing models per operation, and their benchmark | `src/editors` | Lists 2 (Remove) and 3 (Add/Replace) of `MODEL_LIST.md`: 8 models (5 Remove, 3 Add/Replace) run on 30 dev samples per task (2026-11-21); scores wait for the scorer |
 | 5. The editing assistant | (no code yet) | Planned |
 
 ## Repository layout
@@ -32,6 +32,8 @@ src/                        Python package (run as `python -m src.<module>`)
   instructions/             request analysis (RealEdit): label sets, prompts/ (versioned), clients/ (VLMs), runner
   scorer/                   preference pairs and splits, encoders and embeddings, heads, training, evaluation, report
     rewards/                reward models and VLM judges used as baselines (ImageReward, EditReward, EditScore, ...)
+  editors/                  editing models (MODEL_LIST.md): sample sets, VLM edit plans, grounding masks, one
+                            wrapper per model in models/, runner, scores and report
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
 configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
 notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*
@@ -41,6 +43,7 @@ requirements.txt            dependencies of stage 1
 requirements-ml.txt         model libraries for the later stages
 requirements-filters.txt    extra packages of the image filter detectors (installed one model at a time on Kaggle)
 requirements-scorer.txt     extra packages of the scorer's reward-model baselines (one environment per model)
+requirements-editors.txt    extra packages of the editing models
 .env.example                settings and secrets; copy to .env (git-ignored)
 ```
 
@@ -83,6 +86,7 @@ with `--allow-cpu` only for an approved run).
   - `instructions_complete`: the simplified instruction and categories of every request (Qwen2.5-VL-7B);
   - `scorer_train`: embeddings, similarity baselines, trained heads and the report;
   - `scorer_baselines`: reward-model and VLM-judge baselines on the test split.
+  - `editors_remove_add`: the Remove and Add/Replace models on 5 (smoke) or 30 dev samples per task.
 - Bring the results back into `work/` (same sub-folders) and record the run (model, version, time) in the pull
   request. Do not commit outputs.
 
@@ -516,6 +520,54 @@ python -m src.scorer report                      # work/scorer/report.md (small 
 
 Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.json`, `scores.jsonl`, `head.pt`),
 `baselines/<name>.jsonl` (a score per edit) and `<name>.latency.json`, `latency.json`, `report.md`. Notebooks: `scorer_train.ipynb`, `scorer_baselines.ipynb`.
+
+## Editing models (`src.editors`)
+
+The models of `MODEL_LIST.md`, run on a small fixed set of dev samples and judged by the scorer. So far lists 2
+(Remove: `lama`, `migan`, `rorem`, `objectclear`, `osor`) and 3 (Add/Replace: `sdxl-inpaint`, and the mask-free
+`paint-by-inpaint`, `erasedraw`, which add objects from the instruction alone, on the add samples only). The
+inpainting models need a mask for every sample; the mask-free ones get the instruction instead.
+
+```bash
+python -m src.editors samples --task remove          # 30 dev samples with a "Remove <subject>" category (laptop)
+python -m src.editors plan --task remove --limit 5   # Kaggle: Qwen2.5-VL-7B says what to find / where / what to paint
+python -m src.editors masks --task remove --limit 5  # Kaggle: Grounding DINO + SAM 2.1 (add: the plan's box)
+python -m src.editors runall --task remove --limit 5 # Kaggle: every model of the task, each in its own process
+python -m src.editors score --task remove            # Kaggle: mlp-siglip on the outputs and the human edits
+python -m src.editors report --task remove           # work/editors/remove/report.md and contact sheets
+```
+
+- **Samples** (`samples.py`): dev samples only, single-category requests first, dealt round-robin over subjects so
+  the first 5 (the smoke run) already differ. `add_replace` is half Add, half Replace; Add/Replace Background get
+  the op `background`. Left out: "Remove Background" (list 7), samples with a category of the other task, humorous
+  requests, and requests one inpainting step cannot answer (cut-outs, crops, retouching and restoration for
+  remove; changes of size or shape and whole-image or identity changes for add_replace; word lists in
+  `UNSUITABLE`).
+- **Plans** (`plan.py`, `prompts/plan_v<k>.txt`; remove uses v2, add_replace v3): Qwen2.5-VL-7B names each
+  target with its own box, what to keep (background; add: what the new thing must not cover), for Add the existing
+  thing it goes on (its anchor: a face for a beard) or else a free box, and the inpainting prompt. Its boxes are in pixels of the image it saw, which is read from the
+  processor (`image_grid_thw`): the model's config overrides the client's pixel limit, so plan_v1's mapping was
+  wrong (smoke run, 2026-11-20). Answers with problems are recorded; a background plan with nothing to keep is
+  asked again for the subjects alone (`prompts/keep_v1.txt`).
+- **Masks** (`grounding.py`): Grounding DINO's boxes that lie in Qwen's box for the target (so "the letters DB"
+  keeps both), Qwen's box when DINO finds none there, then SAM 2.1 and their union; grown by 15 px (remove) or
+  8 px (replace); for `background` the kept subjects' mask is inverted; for Add, a rectangle around the anchor
+  (or the free box) minus the kept things; an addition worn on the face or head (a beard, glasses, a hat) is
+  anchored on the face or head, not the whole person, and an Add rectangle covers at most 30% of the image. A
+  sample where nothing is found is `no-mask`.
+  Masks record their plan version, and a mask or an output of an older plan version is made again.
+- **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`; `uses_mask`,
+  `ops`, `settings_version`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
+  records the digest of the mask it was made from and the editor's `settings_version`, so only samples whose mask
+  or settings changed are run again. Outputs are resized back to
+  the original size, and only the masked region is kept (pasted back on the original over a 3 px soft edge), so
+  models working at 512 px are not judged on a resampled photo. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
+- **Scores and report** (`score.py`, `report.py`): every output is scored together with the human edits of its
+  sample. The scorer learned from human edits, so AI outputs are another domain: check the contact sheets. With 30
+  samples the shares have wide intervals.
+
+Outputs in `work/editors/`: `samples/`, `plans/`, `masks/`, `<model>/` (`<sample id>.png`, `runs.jsonl`),
+`<task>/` (`scores.jsonl`, `report.md`, `sheets/`). Notebook: `editors_remove_add.ipynb`.
 
 ## Data rules
 

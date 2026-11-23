@@ -1,0 +1,27 @@
+You are preparing an automatic photo edit. A user posted this photo with an edit request.
+
+Request (simplified): "$instruction"
+Request (as written): "$request"
+Type of edit: $operation
+
+An inpainting model will repaint one region of the photo. Find that region and say what goes there. Answer with
+one JSON object:
+
+{"targets": [{"phrase": "...", "bbox_2d": [x1, y1, x2, y2]}, ...], "bbox_2d": [x1, y1, x2, y2] or null, "prompt": "..."}
+
+Coordinates are pixel coordinates of the image you see.
+
+- If the type is remove: "targets" are the things that must disappear, one entry per separate thing (at most 3),
+  each with a short English noun phrase that names it as it looks in the photo ("the man on the left", "the white
+  text", "the beer can") and its box. Include everything the request asks to remove, nothing else. "bbox_2d" is
+  null and "prompt" is "".
+- If the type is replace: "targets" are the things to be replaced, as for remove; "prompt" is a short description
+  of what to paint instead ("a red sports car", "a black leather jacket"); "bbox_2d" is null.
+- If the type is background: the background will be repainted and the main subjects kept. "targets" are the main
+  subjects to keep (people, animals or objects in front), as for remove; "prompt" describes the new background
+  ("a galaxy with stars and nebulae", "a sandy beach at sunset"); "bbox_2d" is null.
+- If the type is add: "targets" is an empty list; "bbox_2d" is the box where the new thing should be painted, the
+  size the new thing should have, placed where it belongs (facial hair goes on the face, a hat on the head);
+  "prompt" is a short description of the new thing.
+
+Answer with the JSON object only.
