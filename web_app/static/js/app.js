@@ -27,6 +27,7 @@
     routeTimer: null,
     routeSeq: 0,
     modalId: null,
+    returnFocus: null,
     modelNames: {},
     visible: [],
   };
@@ -68,9 +69,9 @@
   function toast(title, message, kind = "error") {
     const node = document.createElement("div");
     node.className = `toast ${kind}`;
-    node.innerHTML = `<b>${esc(title)}</b><div class="muted" style="margin-top:2px">${esc(message)}</div>`;
+    node.innerHTML = `<b>${esc(title)}</b><div class="muted" style="margin-top:2px;font-size:12.5px">${esc(message)}</div>`;
     $("#toasts").appendChild(node);
-    setTimeout(() => { node.style.opacity = "0"; node.style.transition = "opacity .3s"; }, 5200);
+    setTimeout(() => { node.style.opacity = "0"; node.style.transform = "translateY(6px)"; node.style.transition = "opacity .3s, transform .3s"; }, 5200);
     setTimeout(() => node.remove(), 5600);
   }
 
@@ -161,15 +162,30 @@
   function renderSamples() {
     const box = $("#samples");
     if (!state.samples.length) {
-      box.innerHTML = '<div class="faint" style="grid-column:1/-1;font-size:12px">No samples: run <span class="mono">python scripts/fetch_dev_split.py</span></div>';
+      box.innerHTML = '<div class="faint" style="grid-column:1/-1;font-size:12px">No samples — run <span class="mono">python scripts/fetch_dev_split.py</span></div>';
       return;
     }
-    $("#samples-note").textContent = "public photos";
+    $("#samples-note").textContent = `${state.samples.length} public photos`;
     box.innerHTML = state.samples.map((s) => `
       <button class="sample" type="button" data-id="${esc(s.id)}" title="${esc(s.instruction)} — ${esc(s.author || s.source)} (${esc(s.source)})">
         <img src="${esc(s.url)}" alt="${esc(s.id)}" loading="lazy">
       </button>`).join("");
     $$(".sample", box).forEach((node) => node.addEventListener("click", () => selectSample(node.dataset.id, true)));
+  }
+
+  // decorative background: the sample photos laid out as an overlapping, slightly tilted print collage
+  const COLLAGE = [
+    [-3, 8, -7, "l"], [7, 30, 5, "p"], [15, 14, -3, "l"], [25, 36, 8, "l"], [33, 4, -6, "p"],
+    [42, 28, 3, "l"], [51, 10, -8, "l"], [60, 34, 6, "p"], [68, 6, -4, "l"], [77, 30, 7, "l"],
+    [86, 12, -5, "p"], [93, 38, 4, "l"],
+  ];
+  function renderCollage(samples) {
+    const box = $("#collage");
+    if (!box || !samples.length) return;
+    box.innerHTML = COLLAGE.map(([left, top, rot, shape], i) => {
+      const s = samples[i % samples.length];
+      return `<figure class="collage-tile ${shape}" style="left:${left}%;top:${top}%;--rot:${rot}deg;animation-delay:${i * 60}ms"><img src="${esc(s.url)}" alt="" decoding="async"></figure>`;
+    }).join("");
   }
 
   function selectSample(id, fillInstruction) {
@@ -200,7 +216,7 @@
     const text = $("#instruction").value.trim();
     const box = $("#route-box");
     if (!text) {
-      box.innerHTML = '<div class="row"><span class="label">Routing</span><span class="faint" style="font-size:12px">Type an instruction to see which models will run.</span></div>';
+      box.innerHTML = '<div class="row"><span class="label">Routing</span><span class="faint">Type an instruction to see which models will run.</span></div>';
       return;
     }
     const seq = ++state.routeSeq;
@@ -213,10 +229,10 @@
         <div class="row"><span class="label">Tasks</span>
           <span class="badge">Shared</span>
           ${cats.map((c) => `<span class="badge cat">${esc(c.label)}</span>`).join("")}
-          ${cats.length ? "" : '<span class="faint" style="font-size:12px">generalists only</span>'}
+          ${cats.length ? "" : '<span class="faint">generalists only</span>'}
         </div>
         ${intents.length ? `<div class="row"><span class="label">Intents</span>${intents.map((i) => `<span class="intent">${esc(i)}</span>`).join("")}</div>` : ""}
-        <div class="row"><span class="label">Models</span><span style="font-size:12px"><b>${route.models.length}</b> <span class="muted">candidates will run</span></span></div>`;
+        <div class="row"><span class="label">Models</span><span><b class="mono">${route.models.length}</b> <span class="muted">candidates will run</span></span></div>`;
     } catch (error) {
       if (seq === state.routeSeq) box.innerHTML = `<div class="row"><span class="faint">Routing preview unavailable: ${esc(error.message)}</span></div>`;
     }
@@ -289,8 +305,9 @@
     // the live panel in the results column
     $("#live-title").textContent = job.status === "scoring" ? "Scoring every edit against the original…" : "Running candidate models…";
     $("#live-count").textContent = `${job.done}/${total}`;
+    const src = state.image && state.image.url ? esc(`--src:url(${JSON.stringify(state.image.url)})`) : "";
     $("#live-grid").innerHTML = Object.entries(job.progress).map(([id, st]) =>
-      `<div class="live-card ${esc(st)}"><div class="ph ${st === "ok" || st === "failed" ? "" : "skeleton"}"></div><div class="nm"><span class="st"></span><span>${esc(names[id] || id)}</span></div></div>`).join("");
+      `<div class="live-card ${esc(st)}"><div class="ph ${st === "ok" || st === "failed" ? "" : "skeleton"}" style="${src}"></div><div class="nm"><span class="st"></span><span>${esc(names[id] || id)}</span></div></div>`).join("");
   }
 
   function showLive(on) {
@@ -371,33 +388,50 @@
     const scorerLabel = r.scorer.kind === "reward_model" ? r.scorer.label : "Proxy score";
     const beat = r.counts.beat_original;
     const bench = best.benchmark;
+    const notices = [
+      r.scorer.kind !== "reward_model" ? esc(r.scorer.fallback_reason || "Scored by the heuristic proxy, not EditReward.") : "",
+      beat === 0 ? "No candidate beat the unedited photo: the best one is shown, but keeping the original may be the right call." : "",
+    ].filter(Boolean);
     hero.innerHTML = `
-      <div class="hero-media">${compareHtml(original, best, "58vh")}</div>
+      <div class="hero-media">${compareHtml(original, best, "62vh")}</div>
       <div class="hero-info">
-        <span class="crown">${ICONS.crown} Best edit</span>
-        <div>
-          <h2>${esc(best.name)}</h2>
-          <div class="sub">${esc(best.date)} · ${best.categories.map((c) => CATEGORY_LABELS[c] || c).join(", ")}
-            · <span class="badge ${best.backend}">${best.backend.toUpperCase()}</span></div>
+        <div class="hero-block hero-head">
+          <div class="hero-tags">
+            <span class="crown">${ICONS.crown} Best edit</span>
+            <span class="badge ${best.backend}">${best.backend.toUpperCase()}</span>
+          </div>
+          <div>
+            <h2>${esc(best.name)}</h2>
+            <div class="sub">${esc(best.date)} · ${best.categories.map((c) => CATEGORY_LABELS[c] || c).join(", ")}</div>
+          </div>
+          ${r.instruction ? `<p class="prompt-echo">${esc(r.instruction)}</p>` : ""}
         </div>
-        <div class="score-big">
-          <span class="v ${gainClass(gain)}">${fmtGain(gain)}</span>
-          <span class="l">${esc(scorerLabel)} gain<br>vs. the unedited photo</span>
+        <div class="hero-block hero-score">
+          <div class="score-big">
+            <span class="v ${gainClass(gain)}">${fmtGain(gain)}</span>
+            <span class="l">${esc(scorerLabel)} gain<br>vs. the unedited photo</span>
+          </div>
+          <dl class="kv" style="margin-top:16px">
+            <div><dt>Latency</dt><dd>${fmtMs(best.elapsed_ms)}</dd></div>
+            <div><dt>VRAM</dt><dd>${fmtGb(best.vram_gb_estimate)}</dd></div>
+            <div><dt>Output</dt><dd>${best.width}×${best.height}</dd></div>
+          </dl>
         </div>
-        <dl class="kv">
-          <div><dt>Latency</dt><dd>${fmtMs(best.elapsed_ms)}</dd></div>
-          <div><dt>VRAM est.</dt><dd>${fmtGb(best.vram_gb_estimate)}</dd></div>
-          <div><dt>Output</dt><dd>${best.width}×${best.height}</dd></div>
-        </dl>
-        <div class="breakdown">${breakdownHtml(best)}</div>
-        ${bench ? `<div class="faint" style="font-size:12px">Kaggle T4 benchmark: EditReward gain <b class="${gainClass(bench.editreward_gain)} g">${fmtGain(bench.editreward_gain)}</b>, win rate ${Math.round((bench.editreward_win_rate || 0) * 100)}%, ${bench.seconds_per_image_t4 ? bench.seconds_per_image_t4.toFixed(2) + " s/image" : ""} (n=${bench.ok})</div>` : ""}
-        ${r.scorer.kind !== "reward_model" ? `<div class="notice">${esc(r.scorer.fallback_reason || "Scored by the heuristic proxy, not EditReward.")}</div>` : ""}
-        ${beat === 0 ? '<div class="notice">No candidate beat the unedited photo: the best one is shown, but keeping the original may be the right call.</div>' : ""}
-        ${best.note ? `<div class="faint" style="font-size:12px">${esc(best.note)}</div>` : ""}
-        <div class="hero-actions">
-          <a class="btn" href="${esc(best.image_url)}" download="${esc(best.model_id)}-${esc(r.run_id.slice(0, 8))}">${ICONS.download} Download</a>
-          <button class="btn" type="button" id="hero-zoom">${ICONS.zoom} Inspect</button>
-          <button class="btn" type="button" id="hero-link">${ICONS.link} Copy link</button>
+        <div class="hero-block">
+          <div class="block-label">Score breakdown</div>
+          <div class="breakdown">${breakdownHtml(best)}</div>
+          ${bench ? `<div class="bench" style="margin-top:12px">Kaggle T4 benchmark · EditReward gain <b class="${gainClass(bench.editreward_gain)} g">${fmtGain(bench.editreward_gain)}</b>, win rate ${Math.round((bench.editreward_win_rate || 0) * 100)}%${bench.seconds_per_image_t4 ? ", " + bench.seconds_per_image_t4.toFixed(2) + " s/image" : ""} (n=${bench.ok})</div>` : ""}
+        </div>
+        ${notices.length || best.note ? `<div class="hero-block hero-notices">
+          ${notices.map((n) => `<div class="notice">${n}</div>`).join("")}
+          ${best.note ? `<div class="note">${esc(best.note)}</div>` : ""}
+        </div>` : ""}
+        <div class="hero-block hero-actions-block">
+          <div class="hero-actions">
+            <a class="btn primary" href="${esc(best.image_url)}" download="${esc(best.model_id)}-${esc(r.run_id.slice(0, 8))}">${ICONS.download} Download</a>
+            <button class="btn" type="button" id="hero-zoom">${ICONS.zoom} Inspect</button>
+            <button class="btn" type="button" id="hero-link">${ICONS.link} Copy link</button>
+          </div>
         </div>
       </div>`;
     bindCompare(hero);
@@ -417,7 +451,7 @@
       ["Total time", fmtMs(r.timings_ms.total)],
       ["Primary task", esc(CATEGORY_LABELS[r.route.primary] || r.route.primary)],
     ];
-    $("#stats").innerHTML = items.map(([k, v]) => `<div class="glass stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+    $("#stats").innerHTML = items.map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   }
 
   function renderFilters() {
@@ -446,14 +480,17 @@
     const list = sortedCandidates();
     state.visible = list.map((c) => c.model_id);
     const winner = state.result.best ? state.result.best.model_id : null;
+    // bento: when ranking by score, the top candidate of the current view gets a 2×2 tile
+    const featureId = state.sort === "score" && list.length > 2 && list[0].status === "ok" ? list[0].model_id : null;
     $("#grid").innerHTML = list.map((c, i) => {
       const gain = c.score ? c.score.gain : null;
       const rankClass = c.rank && c.rank <= 3 ? `r${c.rank}` : "";
+      const feature = c.model_id === featureId;
       const media = c.status === "ok"
-        ? `<img src="${esc(c.thumb_url)}" alt="${esc(c.name)} output" loading="lazy">`
-        : `<div class="err">${esc(c.error || "failed")}</div>`;
-      return `<article class="glass card ${c.model_id === winner ? "winner" : ""} ${c.status !== "ok" ? "failed" : ""}" tabindex="0" data-id="${esc(c.model_id)}" style="animation-delay:${Math.min(i, 12) * 30}ms">
-        <div class="media ${c.transparent ? "checker" : ""}">${media}
+        ? `<img class="loading" src="${esc(feature ? c.image_url : c.thumb_url)}" alt="${esc(c.name)} output" loading="lazy">`
+        : `<div class="err">${ICONS.close.replace("<svg ", '<svg width="18" height="18" ')}<span>${esc(c.error || "failed")}</span></div>`;
+      return `<article class="card ${feature ? "feature" : ""} ${c.model_id === winner ? "winner" : ""} ${c.status !== "ok" ? "failed" : ""}" tabindex="0" data-id="${esc(c.model_id)}" style="animation-delay:${Math.min(i, 12) * 30}ms">
+        <div class="media ${c.transparent ? "checker" : ""} ${c.status === "ok" ? "loading-bg" : ""}"${feature ? ` style="${esc(`--src:url(${JSON.stringify(c.thumb_url)})`)}"` : ""}>${media}
           ${c.rank ? `<span class="rank ${rankClass}">#${c.rank}</span>` : ""}
           <div class="badges">${c.status !== "ok" ? '<span class="badge failed">FAILED</span>' : `<span class="badge ${c.backend}">${c.backend.toUpperCase()}</span>`}</div>
         </div>
@@ -464,18 +501,31 @@
             <span title="Processing time">${ICONS.clock}${fmtMs(c.elapsed_ms)}</span>
             <span title="Weights in fp16 (VRAM estimate)">${ICONS.chip}${fmtGb(c.vram_gb_estimate)}</span>
           </div>
-          ${c.status === "ok" ? `<div>${["alignment", "quality", "fidelity"].map((k) => {
+          ${c.status === "ok" ? `<div class="bars">${["alignment", "quality", "fidelity"].map((k) => {
             const v = c.proxy ? c.proxy[k] : 0;
             return `<div class="mini"><span>${k}</span><div class="dbar"><i class="${v >= 0 ? "pos" : "neg"}" style="width:${Math.min(50, Math.abs(v) * 50)}%"></i></div><span class="val">${fmtGain(v)}</span></div>`;
           }).join("")}</div>` : ""}
         </div>
       </article>`;
-    }).join("") || '<div class="faint">No candidate in this category.</div>';
+    }).join("") || '<div class="empty-grid">No candidate in this category.</div>';
     $$("#grid .card").forEach((card) => {
       const open = () => { if (!card.classList.contains("failed")) openModal(card.dataset.id); };
       card.addEventListener("click", open);
       card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+      card.addEventListener("pointermove", (e) => {
+        const box = card.getBoundingClientRect();
+        card.style.setProperty("--mx", `${e.clientX - box.left}px`);
+        card.style.setProperty("--my", `${e.clientY - box.top}px`);
+      });
     });
+    $$("#grid .media img.loading").forEach(revealWhenLoaded);
+  }
+
+  // image skeleton: shimmer until the bitmap arrives, then fade the image in
+  function revealWhenLoaded(img) {
+    const done = () => { img.classList.remove("loading"); img.parentElement && img.parentElement.classList.remove("loading-bg"); };
+    if (img.complete && img.naturalWidth) done();
+    else { img.addEventListener("load", done, { once: true }); img.addEventListener("error", done, { once: true }); }
   }
 
   function renderTable() {
@@ -507,6 +557,7 @@
     const r = state.result;
     const candidate = r.candidates.find((c) => c.model_id === modelId);
     if (!candidate || candidate.status !== "ok") return;
+    if ($("#modal").classList.contains("hidden")) state.returnFocus = document.activeElement;
     state.modalId = modelId;
     const p = candidate.proxy || {}, m = p.metrics || {};
     const s = candidate.score || {};
@@ -514,19 +565,19 @@
     const pair = (v) => Array.isArray(v) ? `${v[0]} → ${v[1]}` : "—";
     const modal = $("#modal");
     modal.innerHTML = `
-      <div class="glass modal-card" style="position:relative">
+      <div class="modal-card">
         <button class="icon-btn modal-close" type="button" aria-label="Close">${ICONS.close}</button>
         <div class="modal-media">${compareHtml(r.original, candidate, "78vh")}</div>
         <div class="modal-side">
           <div>
-            ${candidate.rank ? `<span class="rank ${candidate.rank <= 3 ? "r" + candidate.rank : ""}" style="position:static;display:inline-grid;margin-bottom:8px">#${candidate.rank}</span>` : ""}
+            ${candidate.rank ? `<span class="rank ${candidate.rank <= 3 ? "r" + candidate.rank : ""}" style="position:static;display:inline-grid;margin-bottom:10px">#${candidate.rank}</span>` : ""}
             <h3 id="modal-title">${esc(candidate.name)}</h3>
-            <div class="muted" style="font-size:12px">${esc(candidate.date)} · <span class="badge ${candidate.backend}">${candidate.backend.toUpperCase()}</span></div>
+            <div class="faint" style="font-size:12px;margin-top:6px;display:flex;gap:8px;align-items:center">${esc(candidate.date)} <span class="badge ${candidate.backend}">${candidate.backend.toUpperCase()}</span></div>
           </div>
-          <div class="score-big"><span class="v ${gainClass(s.gain)}" style="font-size:34px">${fmtGain(s.gain)}</span><span class="l">gain (${esc(s.scorer || "")})<br>raw ${s.raw != null ? Number(s.raw).toFixed(3) : "—"} · baseline ${s.baseline != null ? Number(s.baseline).toFixed(3) : "—"}</span></div>
-          <div class="breakdown">${breakdownHtml(candidate)}</div>
-          ${intents.length ? `<div><div class="section-title" style="margin-bottom:6px">Per-intent alignment</div>${intents.map(([k, v]) => `<div class="brow"><span class="intent" style="justify-self:start">${esc(k === "_generic" ? "general" : k)}</span><div class="dbar"><i class="${v >= 0 ? "pos" : "neg"}" style="width:${Math.min(50, Math.abs(v) * 50)}%"></i></div><span class="val">${fmtGain(v)}</span></div>`).join("")}</div>` : ""}
-          <table class="metrics">
+          <div class="score-big"><span class="v ${gainClass(s.gain)}">${fmtGain(s.gain)}</span><span class="l">gain (${esc(s.scorer || "")})<br>raw ${s.raw != null ? Number(s.raw).toFixed(3) : "—"} · baseline ${s.baseline != null ? Number(s.baseline).toFixed(3) : "—"}</span></div>
+          <div><div class="block-label">Score breakdown</div><div class="breakdown">${breakdownHtml(candidate)}</div></div>
+          ${intents.length ? `<div><div class="block-label">Per-intent alignment</div>${intents.map(([k, v]) => `<div class="brow"><span class="intent" style="justify-self:start">${esc(k === "_generic" ? "general" : k)}</span><div class="dbar"><i class="${v >= 0 ? "pos" : "neg"}" style="width:${Math.min(50, Math.abs(v) * 50)}%"></i></div><span class="val">${fmtGain(v)}</span></div>`).join("")}</div>` : ""}
+          <div><div class="block-label">Metrics · original → edit</div><table class="metrics">
             <tr><td class="muted">Latency</td><td>${fmtMs(candidate.elapsed_ms)}</td></tr>
             <tr><td class="muted">VRAM estimate (fp16 weights)</td><td>${fmtGb(candidate.vram_gb_estimate)}</td></tr>
             <tr><td class="muted">Size</td><td>${pair((m.size || []).map((x) => x.join("×")))}</td></tr>
@@ -536,13 +587,13 @@
             <tr><td class="muted">Noise</td><td>${pair(m.noise)}</td></tr>
             <tr><td class="muted">Structure corr.</td><td>${p.structure_correlation ?? "—"}</td></tr>
             ${candidate.benchmark ? `<tr><td class="muted">T4 bench EditReward gain</td><td>${fmtGain(candidate.benchmark.editreward_gain)}</td></tr><tr><td class="muted">T4 s / image</td><td>${candidate.benchmark.seconds_per_image_t4 ? candidate.benchmark.seconds_per_image_t4.toFixed(2) : "—"}</td></tr>` : ""}
-          </table>
-          ${candidate.note ? `<div class="faint" style="font-size:12px">${esc(candidate.note)}</div>` : ""}
+          </table></div>
+          ${candidate.note ? `<div class="note" style="margin:0">${esc(candidate.note)}</div>` : ""}
           <div class="hero-actions">
-            <a class="btn" href="${esc(candidate.image_url)}" download="${esc(candidate.model_id)}-${esc(r.run_id.slice(0, 8))}">${ICONS.download} Download</a>
-            <a class="btn" href="${esc(candidate.image_url)}" target="_blank" rel="noopener">Open full size ↗</a>
+            <a class="btn primary" href="${esc(candidate.image_url)}" download="${esc(candidate.model_id)}-${esc(r.run_id.slice(0, 8))}">${ICONS.download} Download</a>
+            <a class="btn" href="${esc(candidate.image_url)}" target="_blank" rel="noopener">Full size ↗</a>
           </div>
-          <div class="modal-nav"><button class="btn" type="button" data-step="-1">← Prev</button><button class="btn" type="button" data-step="1">Next →</button><span class="faint" style="font-size:11px;align-self:center">Esc to close</span></div>
+          <div class="modal-nav"><button class="btn" type="button" data-step="-1" aria-label="Previous candidate">← Prev</button><button class="btn" type="button" data-step="1" aria-label="Next candidate">Next →</button><span class="esc"><span class="kbd">←</span><span class="kbd">→</span> browse · <span class="kbd">esc</span></span></div>
         </div>
       </div>`;
     modal.classList.remove("hidden");
@@ -568,6 +619,8 @@
     modal.classList.add("hidden");
     modal.innerHTML = "";
     document.body.style.overflow = "";
+    if (state.returnFocus && document.contains(state.returnFocus)) state.returnFocus.focus({ preventScroll: true });
+    state.returnFocus = null;
   }
 
   // ---------------------------------------------------------------- init
@@ -585,7 +638,19 @@
     }));
     $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
     document.addEventListener("keydown", (e) => {
-      if ($("#modal").classList.contains("hidden")) return;
+      if ($("#modal").classList.contains("hidden")) {
+        const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
+        if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey) { e.preventDefault(); $("#instruction").focus(); }
+        return;
+      }
+      if (e.key === "Tab") {                                   // keep focus inside the dialog
+        const nodes = $$('button, a[href], input, [tabindex]:not([tabindex="-1"])', $("#modal")).filter((n) => n.offsetParent !== null);
+        if (nodes.length) {
+          const first = nodes[0], last = nodes[nodes.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      }
       if (e.key === "Escape") closeModal();
       if (e.key === "ArrowRight" && e.target.type !== "range") stepModal(1);
       if (e.key === "ArrowLeft" && e.target.type !== "range") stepModal(-1);
@@ -606,6 +671,7 @@
     }
     state.samples = samples.status === "fulfilled" ? samples.value.samples : [];
     renderSamples();
+    renderCollage(state.samples);
     onInstruction();
 
     const params = new URLSearchParams(location.search);
