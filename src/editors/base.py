@@ -8,10 +8,14 @@ Two kinds of editor:
   instruction ("Add a camel behind us.") and decides where to edit by itself, so it runs even when no mask was
   found, and its output is not pasted back.
 `ops` limits an editor to some ops of the task (e.g. the addition models: "add"); the other samples are recorded as
-"n/a" and left out of its results.
+"n/a" and left out of its results. An editor whose choice depends on the plan overrides `applies(sample, plan)`
+(e.g. plain code runs on the formatting actions it can do); the runner sets `editor.op` and `editor.plan` before
+each edit(). The tasks of PLANNED_TASKS need a plan for every sample before a run.
 
 Each editor resizes to its own working size (MODEL_LIST.md's settings); the runner resizes the output back to the
-original size, so every output can be compared with the original and with the human edits pixel for pixel.
+original size, so every output can be compared with the original and with the human edits pixel for pixel. An
+edit that changes the size on purpose (crop, extend, enlarge: formatting) sets `keep_size = False`: its output is
+kept as it is and not pasted back.
 
 Paste-back (PASTE_BACK, on for mask-based models): only the masked region of the output is kept, blended into the
 original over a FEATHER px soft edge. Models that work at 512 px (RORem, ObjectClear, OSOR) would otherwise return
@@ -45,6 +49,7 @@ SEED = 0
 PASTE_BACK = True
 FEATHER = 3                 # pixels of soft edge where the edit meets the original
 FINAL = ("ok", "no-mask", "n/a")
+PLANNED_TASKS = ("remove", "add_replace", "change_color", "formatting")     # tasks whose samples need a plan
 STATUSES = ("ok", "failed", "black", "no-mask", "n/a")
 
 
@@ -56,9 +61,16 @@ class Editor:
     uses_mask: bool = True  # False: an instruction editor, given the instruction and no mask
     settings_version: int = 1   # raise when the settings change: outputs of an older one are made again
     op: str | None = None   # the op of the sample being edited, set by the runner before each edit()
+    plan: dict | None = None    # the sample's plan (plan.py) or None, set by the runner before each edit()
+    keep_size: bool = True  # False: the output keeps its own size (crop, extend, upscale): no resize, no paste-back;
+                            # read by the runner after each edit(), so an editor may set it per sample
     install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each (src/common/envs.py)
     isolated: bool = False
     settings: dict = {}     # the settings used, recorded with every output
+
+    def applies(self, sample: dict, plan: dict | None) -> bool:
+        """Whether the editor runs on `sample` (others are recorded "n/a"); by default its `ops`."""
+        return self.ops is None or sample["op"] in self.ops
 
     def load(self, device: str) -> None:
         """Load the model onto `device`. Import heavy libraries here, not at the top of the module."""
@@ -125,7 +137,10 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
     samples = load_task_samples(task, limit)
     plans, masks, runs = load_plans(client_name, version), load_masks(version), load_runs(editor.name, version)
     todo = [s for s in samples if runs.get(s["id"], {}).get("status") not in FINAL]
-    applies = [s for s in todo if editor.ops is None or s["op"] in editor.ops]
+    unplanned = [s["id"] for s in todo if task in PLANNED_TASKS and s["id"] not in plans]
+    if unplanned:
+        raise SystemExit(f"{len(unplanned)} samples have no plan yet (e.g. {unplanned[0]}): run `plan` first")
+    applies = [s for s in todo if editor.applies(s, plans.get(s["id"]))]
     if editor.uses_mask:
         missing = [s["id"] for s in applies if s["id"] not in masks]
         if missing:
@@ -144,12 +159,13 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
                             "mask_digest": digest, "uses_mask": editor.uses_mask, "settings_version": editor.settings_version,
                             "seconds": seconds,
                             "gpu_peak_gb": peak, "model_id": editor.model_id,
-                            "settings": {**editor.settings, "paste_back": PASTE_BACK and editor.uses_mask,
-                                         "feather": FEATHER},
+                            "settings": {**editor.settings,
+                                         "paste_back": PASTE_BACK and editor.uses_mask and editor.keep_size,
+                                         "keep_size": editor.keep_size, "feather": FEATHER},
                             "error": error, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}])
 
     for sample in todo:
-        if editor.ops is not None and sample["op"] not in editor.ops:
+        if not editor.applies(sample, plans.get(sample["id"])):
             record(sample, "n/a")
         elif editor.uses_mask and masks[sample["id"]]["status"] != "ok":
             record(sample, "no-mask")
@@ -168,7 +184,7 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
             prompt = plans[sample["id"]]["prompt"] if sample["id"] in plans else sample["instruction"]
         else:
             mask, prompt = None, sample["instruction"]
-        editor.op = sample["op"]
+        editor.op, editor.plan = sample["op"], plans.get(sample["id"])
         reset_peak()
         started = time.perf_counter()
         try:
@@ -183,10 +199,10 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
                 torch.cuda.empty_cache()
             continue
         seconds = round(time.perf_counter() - started, 2)
-        if edited.size != image.size:
+        if editor.keep_size and edited.size != image.size:
             edited = edited.resize(image.size, Image.Resampling.LANCZOS)
         status = "black" if is_black(edited) else "ok"     # judged on the model's own output
-        if PASTE_BACK and editor.uses_mask:
+        if PASTE_BACK and editor.uses_mask and editor.keep_size:
             edited = paste_back(image, edited, mask)
         output_path(editor.name, sample["id"]).parent.mkdir(parents=True, exist_ok=True)
         edited.save(output_path(editor.name, sample["id"]))

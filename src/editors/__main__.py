@@ -1,4 +1,5 @@
-"""Editing model commands (MODEL_LIST.md lists 2 Remove and 3 Add/Replace). TASK is remove or add_replace.
+"""Editing model commands (MODEL_LIST.md, all 7 lists). TASK is remove, add_replace, enhance, restore, change_color,
+formatting or open_ended.
 
     python -m src.editors list                                   registered editors and their tasks
     python -m src.editors samples --task TASK [--size 30]        the dev samples of the task (laptop)
@@ -11,6 +12,7 @@
                                                                  (and environment, src/common/envs.py), in order
     python -m src.editors score --task TASK [--run mlp-siglip]   the scorer on human edits and model outputs (GPU)
     python -m src.editors report --task TASK [--no-sheets]       work/editors/<task>/report.md and contact sheets
+    python -m src.editors summary                                work/editors/summary.md: every task and model
 
 `--limit 5` is the smoke run of MODEL_LIST.md; without it every sample of the task (30 by default). Every step
 resumes where it stopped. Without a GPU, plan, masks, run and score refuse more than a few samples (see
@@ -62,7 +64,8 @@ def run_all(task: str, models: list[str], limit: int | None = None, extra: list[
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.editors", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["list", "samples", "plan", "masks", "run", "runall", "score", "report"])
+    parser.add_argument("command", choices=["list", "samples", "plan", "masks", "run", "runall", "score", "report",
+                                                "summary"])
     parser.add_argument("--task", choices=TASKS)
     parser.add_argument("--model", help="run: the editor")
     parser.add_argument("--models", help="runall: comma-separated editors (default: every editor of the task)")
@@ -77,6 +80,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--device")
     parser.add_argument("--allow-cpu", action="store_true", help="allow a large run without a GPU (approved only)")
     args = parser.parse_args(argv)
+    if args.command == "summary":
+        from .report import overview
+        print(overview())
+        return
     if args.command != "list" and not args.task:
         parser.error("--task is required")
     common = {"device": args.device, "allow_cpu": args.allow_cpu}

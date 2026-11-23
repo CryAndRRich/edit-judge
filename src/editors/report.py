@@ -20,8 +20,8 @@ from ..common.dataset import iter_samples
 from ..common.io import iter_jsonl
 from ..paths import EDITORS_DIR, SAMPLES_DIR
 from . import editors_of, get_editor
-from .base import load_runs, output_path, summary
-from .grounding import load_masks, mask_path
+from .base import PLANNED_TASKS, load_runs, output_path, summary
+from .grounding import MASK_OPS, load_masks, mask_path
 from .plan import DEFAULT_CLIENT, load_plans, plan_version
 from .samples import load_task_samples
 from .score import load_scores, scores_path, top_human
@@ -87,7 +87,8 @@ def contact_sheets(task: str, samples: list[dict], models: list[str], version: i
 
     masks = load_masks(version)
     runs = {name: load_runs(name, version) for name in models}
-    samples = [s for s in samples if s["id"] in masks]
+    if any(s["op"] in MASK_OPS for s in samples):     # mask tasks: the samples that got as far as a mask
+        samples = [s for s in samples if s["id"] in masks or s["op"] not in MASK_OPS]
     top = best_human_edits({s["id"] for s in samples})
     scores = load_scores(task)
     folder = EDITORS_DIR / task / "sheets"
@@ -104,8 +105,8 @@ def contact_sheets(task: str, samples: list[dict], models: list[str], version: i
             original = SAMPLES_DIR / sid / "original.jpg"
             human = top.get(sid)
             tiles = [tile(original, f"{sid} {sample['op']}"),
-                     tile(original, f"mask {masks[sid]['status']}",
-                          mask_path(sid) if masks[sid]["status"] == "ok" else None),
+                     tile(original, f"mask {masks.get(sid, {}).get('status', '-')}",
+                          mask_path(sid) if masks.get(sid, {}).get("status") == "ok" else None),
                      tile(SAMPLES_DIR / sid / f"{human}.jpg" if human else None,
                           f"best human {human or ''} {scores.get(sid, {}).get(f'human:{human}', '')}")]
             for name in models:
@@ -121,17 +122,9 @@ def contact_sheets(task: str, samples: list[dict], models: list[str], version: i
     return written
 
 
-def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None, sheets: bool = True) -> str:
-    version = version or plan_version(task)
-    samples = load_task_samples(task)
-    ids = {s["id"] for s in samples}
-    plans = {k: v for k, v in load_plans(client_name, version).items() if k in ids}
-    masks = {k: v for k, v in load_masks(version).items() if k in ids}
-    models = editors_of(task)
-    lines = [f"# Editing models: {task}", "",
-             f"{len(samples)} dev samples ({', '.join(sorted({s['op'] for s in samples}))}); plans by {client_name} "
-             f"(plan_v{version}); masks by Grounding DINO + SAM 2.1 (add: the plan's box).", "",
-             "## Plans and masks", "",
+def plan_lines(plans: dict, masks: dict) -> list[str]:
+    """The plans-and-masks section of a report (tasks with plans)."""
+    lines = ["## Plans and masks", "",
              "| Planned | With problems | Masks ok | No mask | Median share masked |", "|---|---|---|---|---|"]
     coverage = [m["coverage"] for m in masks.values() if m["status"] == "ok"]
     ops = sorted({m["op"] for m in masks.values()})
@@ -147,7 +140,28 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = N
                                           f"/{sum(m['op'] == op for m in masks.values())}" for op in ops),
               "Boxes from: " + ", ".join(f"{k} {v}" for k, v in sorted(by_source.items())) +
               " (dino: Grounding DINO inside Qwen's box; qwen: Qwen's box, DINO found nothing there; plan: add)"]
-    lines += ["", "## Runs", "",
+    actions = {}
+    for plan in plans.values():
+        if plan.get("action"):
+            actions[plan["action"]] = actions.get(plan["action"], 0) + 1
+    if actions:
+        lines.append("Format actions: " + ", ".join(f"{k} {v}" for k, v in sorted(actions.items())))
+    return lines + [""]
+
+
+def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None, sheets: bool = True) -> str:
+    version = version or plan_version(task)
+    samples = load_task_samples(task)
+    ids = {s["id"] for s in samples}
+    plans = {k: v for k, v in load_plans(client_name, version).items() if k in ids}
+    masks = {k: v for k, v in load_masks(version).items() if k in ids}
+    models = editors_of(task)
+    lines = [f"# Editing models: {task}", "",
+             f"{len(samples)} dev samples ({', '.join(sorted({s['op'] for s in samples}))}); plans by {client_name} "
+             f"(plan_v{version}); masks by Grounding DINO + SAM 2.1 (add: the plan's box).", ""]
+    if task in PLANNED_TASKS:
+        lines += plan_lines(plans, masks)
+    lines += ["## Runs", "",
               "| Model | Input | Ok | Failed | Black | No mask | n/a | Median s / image | Peak GPU GB |",
               "|---|---|---|---|---|---|---|---|---|"]
     for name in models:
@@ -175,6 +189,42 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = N
         lines += ["", "## Contact sheets (team only)", ""] + [f"- `{p.relative_to(EDITORS_DIR)}`" for p in written]
     text = "\n".join(lines) + "\n"
     out = EDITORS_DIR / task / "report.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    return text
+
+
+def overview() -> str:
+    """work/editors/summary.md: one table over every task with samples, one row per task and model (runs and, when
+    the task is scored, the scorer's shares), so the best model of each task can be read in one place."""
+    from . import TASKS
+    from .samples import samples_path
+
+    lines = ["# Editing models: all tasks", "",
+             "Shares from the scorer (mlp-siglip): Above best = the output beats the best human edit; Humans beaten = "
+             "mean share of the human edits it beats; Best model = it beats every other model of the task. About 30 "
+             "dev samples per task: intervals are about +-18 points at 50%.", "",
+             "| Task | Model | Ok | Failed | n/a | Median s / image | Peak GPU GB | Scored | Above best | "
+             "Humans beaten | Best model |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for task in TASKS:
+        if not samples_path(task).exists():
+            continue
+        samples = load_task_samples(task)
+        version = plan_version(task)
+        models = editors_of(task)
+        scores = model_scores(task, models) if scores_path(task).exists() else {}
+        for name in models:
+            runs = summary(name, task, samples, version)
+            if not any(runs[status] for status in ("ok", "failed", "black", "no-mask", "n/a")):
+                continue                              # not run on this task yet
+            score = scores.get(name, {})
+            lines.append(f"| {task} | {name} | {runs['ok']} | {runs['failed'] + runs['black']} | {runs['n/a']} | "
+                         f"{runs['median_seconds'] if runs['median_seconds'] is not None else '-'} | "
+                         f"{runs['gpu_peak_gb'] if runs['gpu_peak_gb'] is not None else '-'} | "
+                         f"{score.get('scored', '-')} | {percent(score.get('beats_top_human'))} | "
+                         f"{percent(score.get('beats_humans'))} | {percent(score.get('best_model'))} |")
+    text = "\n".join(lines) + "\n"
+    out = EDITORS_DIR / "summary.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
     return text

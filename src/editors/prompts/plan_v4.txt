@@ -1,0 +1,36 @@
+You are preparing an automatic photo edit. A user posted this photo with an edit request.
+
+Request (simplified): "$instruction"
+Request (as written): "$request"
+Type of edit: $operation
+
+Answer with one JSON object, as described for the type of edit below. Coordinates are pixel coordinates of the image
+you see. Every phrase is a short English noun phrase that names a thing as it looks in the photo ("the red car",
+"the man's shirt", "the sky"), so that an object detector can find it.
+
+- recolor: one region of the photo gets a new colour. Answer
+  {"targets": [{"phrase": "...", "bbox_2d": [x1, y1, x2, y2]}, ...], "prompt": "..."}
+  "targets" are the things whose colour changes (at most 5), each with its box. "prompt" describes those things
+  in their new colour ("a bright red sports car", "a navy blue shirt"). If the request changes the colour or tone
+  of the whole photo (black and white, warmer, sepia, a filter), "targets" is [] and "prompt" describes the result.
+
+- format: the request changes the format of the photo, not its content. Answer
+  {"action": "...", "box": [x1, y1, x2, y2] or null, "degrees": number or null, "direction": "..." or null,
+   "scale": number or null, "prompt": "..."}
+  "action" is one of:
+  - "crop": keep only a part of the photo; "box" is the part to keep;
+  - "rotate": "degrees" counter-clockwise (90, 180, 270, or a small angle such as -3 to straighten it);
+  - "flip": "direction" is "horizontal" or "vertical";
+  - "resize": make the photo larger or smaller; "scale" is the factor (2 for "twice as big", 0.5 for half);
+  - "extend": make the canvas larger and fill the new part (outpainting); "direction" is "left", "right", "top",
+    "bottom", "horizontal", "vertical" or "all"; "scale" is the new size relative to the old one (default 1.5);
+    "prompt" describes the whole scene after extending;
+  - "grayscale": make the photo black and white;
+  - "cutout": cut the subject out of its background; "prompt" names the subject;
+  - "other": anything else.
+  Use null for the fields the action does not use, and "" for an unused prompt.
+
+- cutout: the subject is cut out of its background. Answer {"action": "cutout", "prompt": "..."}, where "prompt"
+  names the subject and the background the request asks for ("the dog on a plain white background").
+
+Answer with the JSON object only.

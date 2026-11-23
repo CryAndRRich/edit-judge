@@ -25,8 +25,23 @@ Text/Patterns, ...), each subject in the fixed order of scorer/data.py:sample_or
 many kinds of target and the first 5 (the smoke run) already differ. Only dev samples are used: the scorer chose
 its run on dev but never trained on it, and test stays untouched.
 
+The other tasks (added 2026-11-24 for lists 1 and 4 to 7; `GENERIC`) use the same order, rules and output, with
+categories by their first word ("Enhance Person" -> enhance) and one op each:
+- enhance: "light" when the instruction asks for more light (LOW_LIGHT, the keyword test of the Enhance run of
+  2026-11-22; HVI-CIDNet runs on these only), else "enhance";
+- restore: "restore";
+- change_color: "colorize" when the original is greyscale (DDColor runs on these only), else "recolor" (one region
+  painted in a new colour: plan_v4 and a mask, for SDXL Inpainting);
+- formatting: half "Image-Formatting <subject>" ("format": plan_v4 names the action: crop, rotate, resize, extend,
+  ...), half "Remove Background" ("cutout": BEN2 and BiRefNet), which the remove task leaves out;
+- open_ended: "Open-Ended" and "Other" ("open"; the generalists of list 1 only).
+A sample is in one task only: these tasks skip every sample already in another task's file (the sample files of
+remove and add_replace are not changed by them), so the plans and masks, which are stored by sample ID, stay
+unambiguous.
+
 Output: work/editors/samples/<task>.jsonl, one line per sample in run order:
-{"id", "op" (remove | add | replace | background), "category", "categories", "instruction", "request"}.
+{"id", "op" (remove | add | replace | background | light | enhance | restore | colorize | recolor | cutout | format |
+open), "category", "categories", "instruction", "request"}.
 """
 
 import re
@@ -34,7 +49,7 @@ from collections import defaultdict
 
 from ..common.dataset import text_of
 from ..common.io import iter_jsonl, read_jsonl, write_jsonl
-from ..paths import EDITORS_DIR, FINAL_PAIRS
+from ..paths import EDITORS_DIR, FINAL_PAIRS, SAMPLES_DIR
 from ..scorer.data import sample_order, split_of
 
 DEFAULT_SIZE = 30
@@ -52,6 +67,99 @@ UNSUITABLE = {
 }
 OTHER_TASKS = {operation: {other for task, ops in OPERATIONS.items() if operation not in ops for other in ops}
                for ops in OPERATIONS.values() for operation in ops}     # Remove -> {Add, Replace}, ...
+
+# Tasks of lists 1 and 4 to 7: task -> groups of (category prefix, op); each group gets an equal share of the samples
+GENERIC = {
+    "enhance": [("Enhance", "enhance")],
+    "restore": [("Restore", "restore")],
+    "change_color": [("Change-Color", "recolor")],
+    "formatting": [("Image-Formatting", "format"), ("Remove Background", "cutout")],
+    "open_ended": [("Open-Ended", "open"), ("Other", "open")],
+}
+GENERIC_UNSUITABLE = ("humorous",)
+LOW_LIGHT = re.compile(r"\b(dark\w*|dim\w*|bright\w*|lighten\w*|low[- ]light|underexpos\w*|exposure|night\w*|"
+                       r"illuminat\w*|lighting|adjust (the )?light)\b", re.I)
+GREY_SPREAD = 4                 # mean |R-G| + |G-B| (0-255 scale) below which a photo counts as greyscale
+
+
+def is_greyscale(sample_id: str) -> bool:
+    """True when the original has (almost) no colour: a black-and-white photo to colourise."""
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(SAMPLES_DIR / sample_id / "original.jpg") as im:
+        image = im.convert("RGB")
+    image.thumbnail((256, 256))
+    pixels = np.asarray(image, dtype=np.int16)
+    spread = np.abs(pixels[..., 0] - pixels[..., 1]) + np.abs(pixels[..., 1] - pixels[..., 2])
+    return float(spread.mean()) < GREY_SPREAD
+
+
+def generic_op(task: str, op: str, sample_id: str, instruction: str) -> str:
+    if task == "enhance" and LOW_LIGHT.search(instruction):
+        return "light"
+    if task == "change_color" and is_greyscale(sample_id):
+        return "colorize"
+    return op
+
+
+def taken_elsewhere(task: str) -> set[str]:
+    """Sample IDs already in the sample file of another task."""
+    from . import TASKS
+    return {row["id"] for other in TASKS if other != task for row in iter_jsonl(samples_path(other))}
+
+
+def generic_candidates(requests: dict[str, dict], prefix: str, taken: set[str]) -> list[tuple[str, str]]:
+    """(sample ID, category) of the dev samples with a category that starts with `prefix`, in run order: single
+    category first, round-robin over subjects (as `candidates`)."""
+    single, multi = defaultdict(list), defaultdict(list)
+    for sample_id in sorted(requests, key=sample_order):
+        if split_of(sample_id) != "dev" or sample_id in taken:
+            continue
+        categories = requests[sample_id]["categories"]
+        instruction = " ".join((requests[sample_id]["instruction"] or "").lower().split())
+        if re.sub(r"[^a-z]", "", instruction) in GENERIC_UNSUITABLE:
+            continue
+        matching = [c for c in categories if c == prefix or c.startswith(prefix + " ")]
+        if prefix == "Remove Background":
+            matching = [c for c in categories if c == prefix]
+        if matching:
+            subject = matching[0].split(" ", 1)[1] if " " in matching[0] else "Other"
+            (single if len(categories) == 1 else multi)[subject].append((sample_id, matching[0]))
+    pick = {}
+    for groups in (single, multi):
+        for sample_id, category in round_robin(groups):
+            pick.setdefault(sample_id, category)
+    return list(pick.items())
+
+
+def select_generic(task: str, requests: dict[str, dict], size: int) -> list[dict]:
+    groups = GENERIC[task]
+    taken = taken_elsewhere(task)
+    shares = [size // len(groups) + (index < size % len(groups)) for index in range(len(groups))]
+    found = [generic_candidates(requests, prefix, taken) for prefix, _ in groups]
+    shares = [min(share, len(candidates_of)) for share, candidates_of in zip(shares, found)]
+    leftover = size - sum(shares)                 # a short group leaves its share to the others
+    for group in range(len(groups)):
+        extra = min(leftover, len(found[group]) - shares[group])
+        shares[group] += extra
+        leftover -= extra
+    if leftover:
+        print(f"only {size - leftover} dev samples for {task} (wanted {size})")
+    chosen, seen = [], set()
+    for index in range(max(shares)):              # interleave the groups
+        for group, (prefix, op) in enumerate(groups):
+            if index < shares[group] and found[group][index][0] not in seen:
+                seen.add(found[group][index][0])
+                chosen.append((*found[group][index], op))
+    rows = []
+    for sample_id, category, op in chosen:
+        request = requests[sample_id]
+        instruction = text_of({**request, "id": sample_id}, "instruction")
+        rows.append({"id": sample_id, "op": generic_op(task, op, sample_id, instruction), "category": category,
+                     "categories": request["categories"], "instruction": instruction,
+                     "request": request["request"]})
+    return rows
 
 
 def samples_path(task: str):
@@ -121,6 +229,10 @@ def select(task: str, size: int = DEFAULT_SIZE) -> list[dict]:
     if not any(r["categories"] for r in requests.values()):
         raise SystemExit(f"{FINAL_PAIRS} has no categories: use the dataset version exported after the request "
                          "analysis (2026-11-07 or later)")
+    if task in GENERIC:
+        rows = select_generic(task, requests, size)
+        write_jsonl(samples_path(task), rows)
+        return rows
     operations = OPERATIONS[task]
     shares = [size // len(operations) + (index < size % len(operations)) for index in range(len(operations))]
     per_operation = []

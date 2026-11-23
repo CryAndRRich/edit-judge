@@ -13,7 +13,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
-| 4. Editing models per operation, and their benchmark | `src/editors` | Lists 2 (Remove) and 3 (Add/Replace) of `MODEL_LIST.md`: 8 models (5 Remove, 3 Add/Replace) run on 30 dev samples per task (2026-11-21); scores wait for the scorer |
+| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `MODEL_LIST.md` (28 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); list 4 ran outside `src/editors` (2026-11-22) and is ported; lists 1, 4 to 7 wait for their Kaggle smoke runs; scores wait for the scorer |
 | 5. The editing assistant | (no code yet) | Planned |
 
 ## Repository layout
@@ -86,7 +86,7 @@ with `--allow-cpu` only for an approved run).
   - `instructions_complete`: the simplified instruction and categories of every request (Qwen2.5-VL-7B);
   - `scorer_train`: embeddings, similarity baselines, trained heads and the report;
   - `scorer_baselines`: reward-model and VLM-judge baselines on the test split.
-  - `editors_remove_add`: the Remove and Add/Replace models on 5 (smoke) or 30 dev samples per task.
+  - `editors_run`: the editing models of every list on 5 (smoke) or 30 dev samples per task.
 - Bring the results back into `work/` (same sub-folders) and record the run (model, version, time) in the pull
   request. Do not commit outputs.
 
@@ -523,10 +523,24 @@ Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.jso
 
 ## Editing models (`src.editors`)
 
-The models of `MODEL_LIST.md`, run on a small fixed set of dev samples and judged by the scorer. So far lists 2
-(Remove: `lama`, `migan`, `rorem`, `objectclear`, `osor`) and 3 (Add/Replace: `sdxl-inpaint`, and the mask-free
-`paint-by-inpaint`, `erasedraw`, which add objects from the instruction alone, on the add samples only). The
-inpainting models need a mask for every sample; the mask-free ones get the instruction instead.
+The models of `MODEL_LIST.md` (all 7 lists, 28 editors: `python -m src.editors list`), run on a small fixed set of
+dev samples per task and judged by the scorer:
+
+| Task | Ops | Specialists (list) |
+|---|---|---|
+| remove | remove | `lama`, `migan`, `rorem`, `objectclear`, `osor` (2) |
+| add_replace | add, replace, background | `sdxl-inpaint`; mask-free `paint-by-inpaint`, `erasedraw` (add only) (3) |
+| enhance | light, enhance | `realesrgan`, `hvi-cidnet` (light only), `instructir`, `vosr` (4) |
+| restore | restore | `vosr`, `instantir`, `codeformer`, `gfpgan` (5) |
+| change_color | colorize, recolor | `ddcolor` (colorize), `sdxl-inpaint` (recolor) (6) |
+| formatting | cutout, format | `ben2`, `birefnet` (cutout); `plain-code`, `sdxl-outpaint`, `realesrgan` (format actions) (7) |
+| open_ended | open | none: the generalists only |
+
+The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `vibe`, `flux2-klein-4b`, `varedit-2b`,
+`flux3-klein`, `omnigen2`) run on every task, with the instruction as their prompt. The inpainting models need a
+mask for every sample; the mask-free ones get the instruction instead. Models whose code pins other packages get
+their own environment (`install`, `src/common/envs.py`; the pins are recorded in `requirements-editors.txt`);
+models that ship code but no package are downloaded at a pinned commit into `EJ_MODELS_DIR`.
 
 ```bash
 python -m src.editors samples --task remove          # 30 dev samples with a "Remove <subject>" category (laptop)
@@ -535,6 +549,7 @@ python -m src.editors masks --task remove --limit 5  # Kaggle: Grounding DINO + 
 python -m src.editors runall --task remove --limit 5 # Kaggle: every model of the task, each in its own process
 python -m src.editors score --task remove            # Kaggle: mlp-siglip on the outputs and the human edits
 python -m src.editors report --task remove           # work/editors/remove/report.md and contact sheets
+python -m src.editors summary                        # work/editors/summary.md: every task and model in one table
 ```
 
 - **Samples** (`samples.py`): dev samples only, single-category requests first, dealt round-robin over subjects so
@@ -542,32 +557,40 @@ python -m src.editors report --task remove           # work/editors/remove/repor
   the op `background`. Left out: "Remove Background" (list 7), samples with a category of the other task, humorous
   requests, and requests one inpainting step cannot answer (cut-outs, crops, retouching and restoration for
   remove; changes of size or shape and whole-image or identity changes for add_replace; word lists in
-  `UNSUITABLE`).
+  `UNSUITABLE`). The other tasks (`GENERIC`, 2026-11-24) take their categories by first word, each with its ops:
+  enhance `light` (a keyword test of the instruction) or `enhance`; change_color `colorize` (a greyscale original)
+  or `recolor`; formatting half "Image-Formatting" (`format`) and half "Remove Background" (`cutout`); open_ended
+  "Open-Ended" and "Other". A sample belongs to one task only (these tasks skip samples of the other tasks' files).
 - **Plans** (`plan.py`, `prompts/plan_v<k>.txt`; remove uses v2, add_replace v3): Qwen2.5-VL-7B names each
   target with its own box, what to keep (background; add: what the new thing must not cover), for Add the existing
   thing it goes on (its anchor: a face for a beard) or else a free box, and the inpainting prompt. Its boxes are in pixels of the image it saw, which is read from the
   processor (`image_grid_thw`): the model's config overrides the client's pixel limit, so plan_v1's mapping was
   wrong (smoke run, 2026-11-20). Answers with problems are recorded; a background plan with nothing to keep is
-  asked again for the subjects alone (`prompts/keep_v1.txt`).
+  asked again for the subjects alone (`prompts/keep_v1.txt`). change_color and formatting use plan_v4: the things
+  to recolour and their new colour (none when the whole photo's colour changes), or the format action (crop with
+  its box, rotate, flip, resize, extend, grayscale, cutout, other).
 - **Masks** (`grounding.py`): Grounding DINO's boxes that lie in Qwen's box for the target (so "the letters DB"
   keeps both), Qwen's box when DINO finds none there, then SAM 2.1 and their union; grown by 15 px (remove) or
   8 px (replace); for `background` the kept subjects' mask is inverted; for Add, a rectangle around the anchor
   (or the free box) minus the kept things; an addition worn on the face or head (a beard, glasses, a hat) is
   anchored on the face or head, not the whole person, and an Add rectangle covers at most 30% of the image. A
-  sample where nothing is found is `no-mask`.
+  sample where nothing is found is `no-mask`. recolor masks are segmented like replace targets (grown by 4 px);
+  the other ops get no mask.
   Masks record their plan version, and a mask or an output of an older plan version is made again.
 - **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`; `uses_mask`,
-  `ops`, `settings_version`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
+  `ops` or `applies(sample, plan)`, `keep_size`, `settings_version`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
   records the digest of the mask it was made from and the editor's `settings_version`, so only samples whose mask
   or settings changed are run again. Outputs are resized back to
   the original size, and only the masked region is kept (pasted back on the original over a 3 px soft edge), so
-  models working at 512 px are not judged on a resampled photo. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
+  models working at 512 px are not judged on a resampled photo. Edits that change the size on purpose (crop,
+  quarter turn, resize, extend: `keep_size = False`) keep it. `runs.jsonl` records status (`ok`, `failed`, `black`, `no-mask`), seconds and peak GPU memory.
 - **Scores and report** (`score.py`, `report.py`): every output is scored together with the human edits of its
   sample. The scorer learned from human edits, so AI outputs are another domain: check the contact sheets. With 30
   samples the shares have wide intervals.
 
 Outputs in `work/editors/`: `samples/`, `plans/`, `masks/`, `<model>/` (`<sample id>.png`, `runs.jsonl`),
-`<task>/` (`scores.jsonl`, `report.md`, `sheets/`). Notebook: `editors_remove_add.ipynb`.
+`<task>/` (`scores.jsonl`, `report.md`, `sheets/`), `summary.md`. Notebook: `editors_run.ipynb` (one session runs
+the specialists of lists 2 to 7, the next ones the generalists of list 1).
 
 ## Data rules
 

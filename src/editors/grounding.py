@@ -12,7 +12,9 @@ on its boxes:
   ("remove the cup" + "the table", "remove the leash" + "the dog"), and DINO then removed the whole table or dog.
 SAM 2.1 large turns the kept boxes into masks (`input_boxes`, `multimask_output=False`); the sample's mask is their
 union. Then by op:
-- remove: grown by 15 px (edges and shadows must go too); replace: grown by 8 px;
+- remove: grown by 15 px (edges and shadows must go too); replace: grown by 8 px; recolor (change_color, plan_v4:
+  the things whose colour changes, segmented like replace targets): grown by 4 px; a recolor plan with no target
+  (the whole photo's colour) is "no-mask", left to the instruction editors;
 - background: the mask of the `keep` subjects grown by 4 px (their edges stay intact), then inverted: everything
   else is repainted (plan_v2 plans name those subjects in `targets`);
 - add: a rectangle: around the anchor (plan_v3: the existing thing the new one goes on, found like a target; its
@@ -48,7 +50,8 @@ BOX_THRESHOLD = 0.4
 TEXT_THRESHOLD = 0.3
 QWEN_BOX_MARGIN = 0.10          # a DINO box is meant when its centre lies in Qwen's box grown by this share
 MAX_BOXES = 6
-DILATE = {"remove": 15, "replace": 8, "add": 0, "background": 0}
+DILATE = {"remove": 15, "replace": 8, "add": 0, "background": 0, "recolor": 4}
+MASK_OPS = tuple(DILATE)        # other ops (format, cutout, enhance, ...) get no mask
 KEEP_EDGE = 4                   # pixels added around kept things before they are cut out of the mask
 ANCHOR_GROW = 0.25              # add: share of the anchor's size added on every side
 MAX_ADD_SHARE = 0.30            # add: largest share of the image the rectangle may cover
@@ -259,7 +262,7 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None
     samples = load_task_samples(task, limit)
     plans = load_plans(client_name, version)
     done = load_masks(version)
-    todo = [s for s in samples if s["id"] not in done]
+    todo = [s for s in samples if s["id"] not in done and s["op"] in MASK_OPS]
     device = pick_device(device)
     check_heavy_run(device, len(todo), allow_cpu)
     counts = {"ok": 0, "no-mask": 0, "no-plan": 0}

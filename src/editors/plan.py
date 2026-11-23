@@ -17,6 +17,12 @@ of 2026-11-21) is asked again with prompts/keep_v1.txt, which asks only for the 
 `keep_retry` (that prompt's ID) and the second answer in `raw_keep`. Plans of the earlier code that lack the retry
 are asked again by the next run.
 
+plan_v4 (change_color and formatting, 2026-11-24): recolor names the things whose colour changes, with boxes, and
+the prompt (those things in their new colour; no targets when the whole photo's colour changes); format names the
+action (ACTIONS: crop with the box to keep, rotate by degrees, flip, resize by a scale, extend in a direction,
+grayscale, cutout, other), which plain code (crop, rotate, flip, resize, grayscale), SDXL outpainting (extend) and
+Real-ESRGAN (resize up) carry out; cutout samples name the subject.
+
 Prompt versions per task (TASK_VERSIONS): remove keeps plan_v2, which works for it, so its plans, masks and
 outputs of the second smoke run are reused; add_replace uses plan_v3.
 
@@ -46,7 +52,8 @@ from .samples import load_task_samples
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 DEFAULT_CLIENT = "qwen2.5-vl-7b"
 DEFAULT_VERSION = 3
-TASK_VERSIONS = {"remove": 2, "add_replace": 3}
+TASK_VERSIONS = {"remove": 2, "add_replace": 3, "change_color": 4, "formatting": 4}
+ACTIONS = ("crop", "rotate", "flip", "resize", "extend", "grayscale", "cutout", "other")     # plan_v4, op format
 MAX_TARGETS = 5
 MAX_TOKENS = 300
 MIN_BOX = 8                     # pixels: a smaller box is not a usable region
@@ -122,6 +129,13 @@ def map_box(raw, image_size: tuple[int, int], seen: tuple[int, int]) -> list[int
     return [round(x1), round(y1), round(x2), round(y2)]
 
 
+def number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_plan(text: str, sample: dict, image_size: tuple[int, int], seen: tuple[int, int] | None = None) -> dict:
     """The plan of one answer; every deviation from the format is recorded in `problems`. `seen` is the size the
     model saw (default: the image's own size)."""
@@ -172,6 +186,27 @@ def parse_plan(text: str, sample: dict, image_size: tuple[int, int], seen: tuple
     elif op == "background":
         if not keep and not targets:
             problems.append("nothing to keep")
+    elif op == "recolor" and not targets:
+        problems.append("whole image")                # a change of the whole photo's colour: no region to mask
+    elif op in ("format", "cutout"):
+        action = str(data.get("action") or "").strip().lower()
+        if op == "cutout":
+            action = "cutout"
+        elif action not in ACTIONS:
+            problems.append(f"unknown action {action!r}")
+            action = "other"
+        fields = {"action": action, "degrees": number(data.get("degrees")), "scale": number(data.get("scale")),
+                  "direction": (str(data["direction"]).strip().lower() if data.get("direction") else None)}
+        if action == "crop":
+            box = map_box(data.get("box") or data.get("bbox_2d"), image_size, seen)
+            if box is None:
+                problems.append("crop without a box")
+        for field, needed in (("degrees", "rotate"), ("direction", "flip"), ("scale", "resize")):
+            if action == needed and fields[field] is None:
+                problems.append(f"{action} without {field}")
+        return {"id": sample["id"], "op": op, "targets": [], "target_boxes": [], "keep": [], "keep_boxes": [],
+                "anchor": None, "anchor_box": None, "box": box, "prompt": prompt or sample["instruction"],
+                **fields, "seen": list(seen), "raw": text, "problems": problems}
     elif not targets:
         problems.append("no targets")
     if op != "remove" and not prompt:

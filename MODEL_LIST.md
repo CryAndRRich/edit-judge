@@ -8,7 +8,7 @@ There are 7 lists:
 
 The tasks Open-Ended and Other use the shared list only. A grounding step makes the masks that some specialists need.
 
-Every model below was checked on 2026-11-17 against its Hugging Face API file list, its model card and its GitHub repository. Each model had its own check. Lists 2 and 3 were extended on 2026-11-21 after a second search of CVPR, ICCV, ECCV, NeurIPS and ICLR papers (models marked *added 2026-11-21*; candidates for later are under "Candidates for later"). Lists 2 and 3 run in `src/editors` (status in the table at the end); the other lists have not been run yet.
+Every model below was checked on 2026-11-17 against its Hugging Face API file list, its model card and its GitHub repository. Each model had its own check. Lists 2 and 3 were extended on 2026-11-21 after a second search of CVPR, ICCV, ECCV, NeurIPS and ICLR papers (models marked *added 2026-11-21*; candidates for later are under "Candidates for later"). All 7 lists run in `src/editors` (2026-11-24; status in the table at the end): lists 2 and 3 have run, list 4 ran once outside it and was ported, the others wait for their smoke runs. Each new model's settings were checked against its code at a pinned commit (one check per model, 2026-11-24); the notes below say where the code had to be changed for the T4.
 
 ## Summary
 
@@ -47,8 +47,8 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | LaMa (big-lama) | WACV 2022 | 2 Remove (classic) |
 | Real-ESRGAN x4plus | ICCV 2021 (workshop) | 4 Enhance, 7 Image-Formatting (classic) |
 | GFPGAN v1.4 | CVPR 2021 | 5 Restore (classic) |
-| Grounding DINO base | ECCV 2024 | Masks for lists 2, 3, 6 and 7 |
-| SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3, 6 and 7 |
+| Grounding DINO base | ECCV 2024 | Masks for lists 2, 3 and 6 |
+| SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3 and 6 |
 
 That is 26 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
 
@@ -83,13 +83,13 @@ Every model here runs on every sample of the benchmark set.
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| FLUX 3 Image Klein | 10/2026 | hf:black-forest-labs/flux-3-image-klein | 20.3 (transformer 11.10, text encoder 8.88, VAE 0.34) | FLUX Kommunity license, gated | medium | Accept the license on the page and use an HF token. The card and the pipeline class are hidden until access is granted, so read them first. Download only `transformer/`, `text_encoder/`, `vae/` (`allow_patterns`): the whole repository is 43 GB. Split over the 2 GPUs. |
-| VAREdit 2B | ICLR 2026 | hf:HiDream-ai/VAREdit (`2B-512.pth`, `flan-t5-xl/`), gh:HiDream-ai/VAREdit; VAE `infinity_vae_d32reg.pth` from hf:FoundationVision/Infinity | about 11.7 (model 4.4, flan-t5-xl 5.7, VAE 1.6); the files are fp32: 8.8 + 11.4 + 1.6 GB to download | MIT | medium | Visual autoregressive, not diffusion, so it is fast. 512 x 512 only (the input is padded to a square). `infer.py`: `load_model(..., model_size="2B", image_size=512)`, then `generate_image(...)` with cfg 3.0, tau 0.1 (from the README table; the code defaults differ). The code hard-codes bf16 autocast in several places: patch to fp16. One GPU. |
-| FLUX.2 [klein] 4B | 01/2026 | hf:black-forest-labs/FLUX.2-klein-4B | 16.0 (transformer 7.75, text encoder 8.04, VAE 0.17) | Apache 2.0 | easy | `Flux2KleinPipeline`, diffusers from GitHub main; 4 steps, guidance 1.0. Split the text encoder and transformer over the 2 GPUs. The card's example is text-to-image only: check the name of the input-image argument in the pipeline source. |
-| VIBE | 12/2025 (arXiv 2601.02242) | hf:iitolstykh/VIBE-Image-Edit, gh:ai-forever/VIBE | 9.3 (Sana1.5 1.6B 3.8, Qwen3-VL-2B 4.3, VAE 1.2) | code Apache 2.0, model under the SANA license | medium | Fits one T4. `vibe` package from GitHub, `ImageEditor(...)`, 20 steps, guidance 4.5, image guidance 1.2. The code hard-codes bf16: patch `weight_dtype` to fp16. Pins torch 2.6, diffusers 0.33.1, transformers 4.57.1, so use its own venv. |
-| OmniGen2 | 06/2025 | hf:OmniGen2/OmniGen2, gh:VectorSpaceLab/OmniGen2 | about 15.1 (transformer 7.9, Qwen2.5-VL 7.0); stored in fp32, 30 GB to download | Apache 2.0 | medium | Repository script `inference.py` (diffusers support is not done). torch 2.6 pin, so use its own venv. No flash-attn on T4. 50 steps, text guidance 5.0, image guidance 2.0 (the card says 1.2-2.0 for editing). Needs CPU offload or a split over the 2 GPUs. |
-| *Classic:* RealEdit | CVPR 2025 | hf:peter-sushko/RealEdit | about 2.2 (.bin, fp32 on disk) | card: CC; GitHub: MIT | easy | `StableDiffusionInstructPix2PixPipeline`, `safety_checker=None`, Euler Ancestral scheduler, 50 steps, image guidance 2 (card example). InstructPix2Pix fine-tuned on RealEdit, the source of 92% of our samples. |
-| *Classic:* MagicBrush | NeurIPS 2023 | hf:vinesmsuic/magicbrush-jul7 | about 2.2 (.bin) | CreativeML OpenRAIL-M | easy | Community diffusers port of the authors' checkpoint (osunlp/InstructPix2Pix-MagicBrush, .ckpt only). Same pipeline, 20 steps, guidance 7, image guidance 1.5. |
+| FLUX 3 Image Klein | 10/2026 | hf:black-forest-labs/flux-3-image-klein | 20.3 (transformer 11.10, text encoder 8.88, VAE 0.34) | FLUX Kommunity license, gated | medium | Accept the license on the page and use an HF token. The card is public (the files are not): it uses a **modular** pipeline (`Flux3DistilledAutoBlocks`, diffusers >= 0.42, which needs transformers >= 5.2: own venv `diffusers==0.43.0 transformers==5.8.1`); 16 steps, no guidance (distilled). Download only `transformer/`, `text_encoder/` (Qwen3-VL-4B), `vae/` and `modular_model_index.json`: the whole repository is 43 GB. Text encoder on cuda:0, transformer and fp32 VAE on cuda:1. The card says to always run its prompt upsampler (a 9.4B Qwen3.5, 18.8 GB): it does not fit next to the editor, so the instruction is sent as typed (a known quality risk). Check the scheduler shift (6.93 in diffusers, 16 in the reference code) once access is granted |
+| VAREdit 2B | ICLR 2026 | hf:HiDream-ai/VAREdit (`2B-512.pth`, `flan-t5-xl/`), gh:HiDream-ai/VAREdit; VAE `infinity_vae_d32reg.pth` from hf:FoundationVision/Infinity | about 11.7 (model 4.4, flan-t5-xl 5.7, VAE 1.6); the files are fp32: 8.8 + 11.4 + 1.6 GB to download | MIT | medium | Visual autoregressive, not diffusion, so it is fast. 512 x 512 only (the repository pads the input to a square and crops back). `infer.py` components, cfg 3.0, tau 0.1 (README table; the code defaults differ). The code hard-codes bf16 (tools/run_infinity.py) and imports flash_attn: the downloaded code is patched to fp16, flash-attn's varlen call is replaced by SDPA, the compiled fused norm by the same eager computation, the VAE decodes in fp32; the 2B VAE is not in the VAREdit repository but in FoundationVision/Infinity. One GPU; 21.8 GB download |
+| FLUX.2 [klein] 4B | 01/2026 | hf:black-forest-labs/FLUX.2-klein-4B | 16.0 (transformer 7.75, text encoder 8.04, VAE 0.17) | Apache 2.0 | easy | `Flux2KleinPipeline` (diffusers >= 0.37.0; own venv `diffusers==0.37.1`); 4 steps, guidance 1.0 (distilled); the photo is the pipeline's `image`. Text encoder (Qwen3-4B) on cuda:0, transformer on cuda:1, VAE in fp32 (decoded outside the pipeline). bf16-trained: watch for black images in fp16 |
+| VIBE | 12/2025 (arXiv 2601.02242) | hf:iitolstykh/VIBE-Image-Edit, gh:ai-forever/VIBE | 9.3 (Sana1.5 1.6B 3.8, Qwen3-VL-2B 4.3, VAE 1.2) | code Apache 2.0, model under the SANA license | medium | Fits one T4. Pipeline `VIBESanaEditingPipeline` loaded directly in fp16 (upstream `ImageEditor` hard-codes bf16 in vibe/editor.py line 54; its crop-back is also skipped: the pipeline output is resized back by the runner). 20 steps, guidance 4.5, image guidance 1.2. Own venv: diffusers 0.33.1, transformers 4.57.1 (Qwen3-VL), the package with --no-deps |
+| OmniGen2 | 06/2025 | hf:OmniGen2/OmniGen2, gh:VectorSpaceLab/OmniGen2 | about 15.6 (transformer 7.9, Qwen2.5-VL-3B 7.5); stored in fp32, 31 GB to download | Apache 2.0 | medium | Repository code (`OmniGen2Pipeline`, diffusers support is not done); runs on the machine's packages (the torch 2.6 pin is for training) plus einops. Its MLLM is Qwen2.5-VL-**3B** (7.5 GB in fp16), not 7B. No flash-attn on T4 (the repository falls back to SDPA). 50 steps, text guidance 5.0, image guidance 2.0, the inference.py negative prompt; model CPU offload on one GPU. The authors say fp16 "is not expected to perform well" (trained in bf16). Slow: about 5-7 min per image on a T4 (estimate), so its full run needs its own sessions |
+| *Classic:* RealEdit | CVPR 2025 | hf:peter-sushko/RealEdit | about 2.2 (.bin, fp32 on disk) | card: CC; GitHub: MIT | easy | `StableDiffusionInstructPix2PixPipeline`, `safety_checker=None`, Euler Ancestral scheduler, 50 steps, image guidance 2, guidance 7.5, long side 512 (card, notebook and inference.py). InstructPix2Pix fine-tuned on RealEdit, the source of 92% of our samples: its training split may contain some of our samples |
+| *Classic:* MagicBrush | NeurIPS 2023 | hf:vinesmsuic/magicbrush-jul7 | about 2.2 (.bin) | CreativeML OpenRAIL-M | easy | Community diffusers port of the authors' "recent best" checkpoint (osunlp/InstructPix2Pix-MagicBrush, .ckpt only; not the paper's epoch 168), fp32 .bin (4.3 GB to download). Same pipeline, 20 steps, guidance 7, image guidance 1.5 (the port's card) |
 | *Classic:* InstructPix2Pix | CVPR 2023 | hf:timbrooks/instruct-pix2pix | 2.7 | MIT | easy | `StableDiffusionInstructPix2PixPipeline` with `variant="fp16"` (otherwise the fp32 files are downloaded). Pipeline defaults: 100 steps, guidance 7.5, image guidance 1.5. |
 
 **This list is short.** Most new open generalists are 30-58 GB in fp16 and do not fit 2 T4s without quantization (see "Left out"). Of the new ones that fit, only VAREdit 2B has a conference paper.
@@ -103,7 +103,7 @@ All of these need a mask (see Grounding).
 | OSOR-SDXL-Inpainting *(added 2026-11-21)* | ECCV 2026 | hf:QinmingZhou/OSOR (`osor-sdxlinpainting/weights/sdxlinpainting_phase2.pth`), gh:zhouqm-git/osor | 3.1 (rank-256 LoRA + 5-channel conv_out, .pth) on SDXL Inpainting 0.1 (6.9) | code MIT; checkpoint OpenRAIL++-M | medium | **One step** (t = 400), removes shadows and reflections too. Its code imports `src.models...`, which collides with our `src` package, so `src/editors/models/osor.py` re-implements `inference_enhance.py` (UNet + peft LoRA + 5-channel conv_out; the module layout was checked against all 1,544 checkpoint keys). bfloat16 is hard-coded upstream: run in float16. Fixed prompt "Remove the instance of object", shorter side 512. Needs `peft`. |
 | ObjectClear | CVPR 2026 | hf:jixin0101/ObjectClear, gh:zjx0101/ObjectClear | 7.8 | S-Lab, non-commercial | medium | Custom `ObjectClearPipeline` from the GitHub package; `--use_fp16`; shorter side 512, 20 steps, guidance 2.5. Also removes shadows and reflections. The HF weights date from 2025-07; the paper was renamed for CVPR 2026. |
 | RORem | CVPR 2025 | hf:LetsThink/RORem | 6.9 | Apache 2.0 | easy | `AutoPipelineForInpainting` (an SDXL inpainting pipeline); 512 x 512, 50 steps, strength 0.99, guidance 1.0. The card's code has bugs: write the call yourself. The repository's pins (diffusers 0.30) are only needed for training. |
-| MI-GAN *(added 2026-11-21)* | ICCV 2023 | TorchScript `migan_traced.pt` from gh:Sanster/models, release `migan` (27 MB, MD5 76eb3b1a…), as used by IOPaint | 0.03 | MIT | easy | Light GAN distilled from Co-Mod-GAN; a second fast baseline next to LaMa. 512 x 512 only: crop around the mask (128 px margin), scale to 512, pad to a square, input `[0.5 - mask, image * (1 - mask)]` in [-1, 1] (IOPaint's pre-processing). No pip package (iopaint pins clash). |
+| MI-GAN *(added 2026-11-21)* | ICCV 2023 | TorchScript `migan_traced.pt` from gh:Sanster/models, release `migan` (27 MB, MD5 76eb3b1a...), as used by IOPaint | 0.03 | MIT | easy | Light GAN distilled from Co-Mod-GAN; a second fast baseline next to LaMa. 512 x 512 only: crop around the mask (128 px margin), scale to 512, pad to a square, input `[0.5 - mask, image * (1 - mask)]` in [-1, 1] (IOPaint's pre-processing). No pip package (iopaint pins clash). |
 | *Classic:* LaMa (big-lama) | WACV 2022 | TorchScript `big-lama.pt` from gh:enesmsahin/simple-lama-inpainting, release v0.1.0 | 0.2 | Apache 2.0 | easy | Load with `torch.jit.load`, without the pip package, whose pins (numpy < 2, pillow < 10) clash with Kaggle. White in the mask = fill. The output is padded to a multiple of 8: crop it back. |
 
 **Remove Background** (1,193 samples) often asks for a plain or white background. The cut-out models of list 7 also run on these samples.
@@ -126,8 +126,8 @@ All of these need a mask (see Grounding).
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
 | VOSR 2.0 | CVPR 2026 | hf:CSWRY/VOSR (`VOSR2/`, `Qwen-Image-vae-2d/`, `torch_cache/`), gh:cswry/VOSR | about 7.0 in fp32 (DiT 1.4B 5.6, DINOv2-L 1.2, VAE 0.2) | Apache 2.0 | medium | One-step generative super-resolution. VOSR 2.0 does not use SD 2.1 (only the older 0.5B models do). `inference_vosr_onestep.py -c preset/ckpts/VOSR2 -u 1` for sharpening without upscaling (the code allows 1; the README only shows 4). Runs in fp32 (no dtype flag); use `--tile_size 512` for large photos. Run from the repository root (relative paths). Bad images are skipped silently: count the outputs. |
-| HVI-CIDNet | CVPR 2025 | hf:Fediory/HVI-CIDNet-Generalization, gh:Fediory/HVI-CIDNet | 0.008 (1.9M parameters) | MIT | easy | For dark photos. `eval_hf.py` with the "generalization" weights, which the authors recommend for real photos; `alpha_i` sets the brightness. Skip `requirements.txt` (torch 1.13). Nothing stops it from brightening a photo that is already well lit, so run it only on lighting requests. |
-| InstructIR | ECCV 2024 | hf:marcosv/InstructIR, gh:mv-lab/InstructIR | 0.06 + text encoder TaylorAI/bge-micro-v2 | MIT | medium | Needs code from the repository: `configs/eval5d.yml`, `models/`, `text/`. Handles 7 degradations named in the instruction: noise, blur, rain, haze, low light, enhancement, upscaling. The authors say it generalises poorly to real photos. |
+| HVI-CIDNet | CVPR 2025 | hf:Fediory/HVI-CIDNet-Generalization, gh:Fediory/HVI-CIDNet | 0.008 (1.9M parameters) | MIT | easy | For dark photos: runs only on the "light" samples (a keyword test of the instruction). The "generalization" weights, which the authors recommend for real photos, load into `CIDNet()` with strict=True; alpha_s = alpha_i = gamma = 1, as eval_hf.py. Skip `requirements.txt` (torch 1.13) |
+| InstructIR | ECCV 2024 | hf:marcosv/InstructIR, gh:mv-lab/InstructIR | 0.06 + text encoder TaylorAI/bge-micro-v2 | MIT | medium | Repository code at a pinned commit (`models/`, `text/`, `configs/eval5d.yml`), fp32, the instruction as prompt. Handles 7 degradations named in the instruction: noise, blur, rain, haze, low light, enhancement, upscaling. The authors say it generalises poorly to real photos |
 | *Classic:* Real-ESRGAN x4plus | ICCV 2021 (workshop) | `RealESRGAN_x4plus.pth` from gh:xinntao/Real-ESRGAN, release v0.1.0 | 0.07 | BSD-3 | easy | Load with the `spandrel` package (0.4.2, 2026). The `realesrgan` and `basicsr` packages are from 2022 and break on new torchvision. |
 
 **Enhance Person** (1,426 samples) is mostly retouching (skin, eyes, smiles). No specialist covers it, so the shared list decides this row.
@@ -137,16 +137,16 @@ All of these need a mask (see Grounding).
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
 | VOSR 2.0 | CVPR 2026 | as in list 4 | about 7.0 | Apache 2.0 | medium | For blurred, low-resolution and compressed photos. It does not remove scratches or tears. |
-| InstantIR | 10/2024 | hf:InstantX/InstantIR, gh:instantX-research/InstantIR | about 11-12 (SDXL base about 7, InstantIR .pt about 4, DINOv2-large 0.6) | Apache 2.0 | medium | Custom `InstantIRPipeline` from the repository. Pass `--vision_encoder_path facebook/dinov2-large` (the default is a private path). 30 steps, cfg 7.0, prompt optional, batch size 1. Old pins (diffusers 0.28, torch 2.0), so use its own venv. One T4. |
-| *Classic:* CodeFormer | NeurIPS 2022 | gh:sczhou/CodeFormer, release v0.1.0 | 0.4 + face detection models | S-Lab, non-commercial | medium | `inference_codeformer.py -w 0.7`. Bundles its own basicsr. Documented for Python 3.8, so the smoke run must confirm it works on 3.11. |
-| *Classic:* GFPGAN v1.4 | CVPR 2021 | gh:TencentARC/GFPGAN, `GFPGANv1.4.pth` in release v1.3.0 | small | Apache 2.0 (README) | medium | Restores faces; whole photos work (faces are found and pasted back), and the background is upscaled with Real-ESRGAN. `basicsr` imports `torchvision.transforms.functional_tensor`, which new torchvision removed: patch the import. |
+| InstantIR | 10/2024 | hf:InstantX/InstantIR, gh:instantX-research/InstantIR | about 11-12 (SDXL base about 7, InstantIR .pt about 4, DINOv2-large 0.6) | Apache 2.0 | medium | Custom `InstantIRPipeline` from the repository; `facebook/dinov2-large` as the vision encoder (the script's default is a private path). 30 steps, cfg 7.0, the script's default prompt (the instruction is ignored), batch size 1, its resize (short side >= 768, long side <= 1024). Runs on the main environment (its imports still exist in diffusers 0.35-0.39; the authors' pins are old). One T4, about 12 GB of weights: tight |
+| *Classic:* CodeFormer | NeurIPS 2022 | gh:sczhou/CodeFormer, release v0.1.0 | 0.4 + face detection models | S-Lab, non-commercial | medium | As `inference_codeformer.py -w 0.7` on whole photos (RetinaFace, ParseNet paste-back), upscale 1, no background upsampler, fp32. Its bundled basicsr is imported without setup.py (only `archs` and `utils`) |
+| *Classic:* GFPGAN v1.4 | CVPR 2021 | gh:TencentARC/GFPGAN, `GFPGANv1.4.pth` in release v1.3.0 | small | Apache 2.0 (README) | medium | Restores faces; whole photos work (faces are found and pasted back). Upscale 1 and no Real-ESRGAN background (the runner shrinks outputs back anyway, and Real-ESRGAN is its own editor). Own venv: gfpgan 1.3.8, basicsr 1.4.2, facexlib 0.3.0 with --no-deps; `torchvision.transforms.functional_tensor` is pointed at `functional` |
 
 ## 6. Change-Color (recolouring, colourising black-and-white photos)
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| SDXL Inpainting 0.1, one region | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | For "make the car red": mask the object and prompt with the new colour. Same settings as list 3. |
-| DDColor | ICCV 2023 | hf:piddnad/ddcolor_modelscope, gh:piddnad/DDColor | 0.9 | Apache 2.0 | medium | Use the `modelscope` checkpoint, which MODEL_ZOO.md recommends for photos outside ImageNet. Clone the repository: `DDColorHF.from_pretrained` needs its bundled basicsr on the path. Input 512; the colour is upscaled back to full size. Colourises the whole image only. |
+| SDXL Inpainting 0.1, one region | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | For "make the car red" ("recolor" samples): plan_v4 names the thing and its new colour, the mask is its segmentation (grown by 4 px). Same settings as list 3 |
+| DDColor | ICCV 2023 | hf:piddnad/ddcolor_modelscope, gh:piddnad/DDColor | 0.9 | Apache 2.0 | medium | The `modelscope` checkpoint, which MODEL_ZOO.md recommends for photos outside ImageNet; repository code at a pinned commit (its `ddcolor` package needs only the bundled, slimmed basicsr on the path). Input 512; the colour is upscaled back to full size. Colourises the whole image only: runs on greyscale photos ("colorize" samples) |
 
 **No recent photo colouriser.**
 - We found no usable colourisation model for photos from 2025-2026.
@@ -157,13 +157,13 @@ All of these need a mask (see Grounding).
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| BEN2 (Base) | 01/2025 | hf:PramaLLC/BEN2 | 0.38 | MIT | easy | `pip install git+https://github.com/PramaLLC/BEN2.git`, then `BEN_Base.from_pretrained("PramaLLC/BEN2")` and `model.inference(image)`. The two READMEs give different APIs: check in the smoke run. |
-| BiRefNet | 07/2024 (journal CAAI AIR 2024) | hf:ZhengPeng7/BiRefNet | 0.44 | MIT | easy | `AutoModelForImageSegmentation`, `trust_remote_code=True`, `.half()`; resize to 1024 x 1024, ImageNet normalisation. Output RGBA, or composite on white. Skip the repository's `torch==2.5.1` pin. |
-| SDXL Inpainting 0.1, outpainting | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | Our own padding: enlarge the canvas, mask the new border. The card does not document this use. |
-| *Classic:* Real-ESRGAN x4plus | ICCV 2021 (workshop) | as in list 4 | 0.07 | BSD-3 | easy | For "make it bigger". |
-| *Classic:* plain code | | PIL | | | easy | Crop, resize, rotate, change format. Sometimes the right answer. |
+| BEN2 (Base) | 01/2025 | hf:PramaLLC/BEN2 | 0.38 | MIT | easy | `BEN2.py` and `model.safetensors` of the HF repository at a pinned revision (no git install): `BEN_Base().load_state_dict(...)`, `model.inference(image)` (fp16 autocast inside), composited on white. Cut-out samples only |
+| BiRefNet | 07/2024 (journal CAAI AIR 2024) | hf:ZhengPeng7/BiRefNet | 0.44 | MIT | easy | `AutoModelForImageSegmentation`, `trust_remote_code=True` at a pinned revision (the code fixes for transformers >= 4.56 are in it), `.half()`; resize to 1024 x 1024, ImageNet normalisation; composited on white. Cut-out samples only |
+| SDXL Inpainting 0.1, outpainting | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | Our own padding: the canvas grows by the plan's scale (1.5 by default) in its direction, the new border and 16 px of the seam are painted at strength 1.0 from the plan's prompt; the output keeps the new size. "extend" actions only |
+| *Classic:* Real-ESRGAN x4plus | ICCV 2021 (workshop) | as in list 4 | 0.07 | BSD-3 | easy | For "make it bigger" ("resize" actions with a scale above 1): the output keeps the larger size (long side at most 2,048 px) |
+| *Classic:* plain code | | PIL | | | easy | Crop, rotate, flip, resize and grayscale, from the plan's action. Sometimes the right answer |
 
-## Grounding (masks for lists 2, 3, 6 and 7)
+## Grounding (masks for lists 2, 3 and 6)
 
 | Tool | Date | Source | Weights | License | Notes |
 |---|---|---|---|---|---|
@@ -229,7 +229,7 @@ Rejected in that search: ASUKA (CVPR 2025) and GeoRemover (NeurIPS 2025), FLUX.1
 ## How to run (summary)
 
 **Samples.**
-- About 30 samples per task from the dev split, fixed seed, about 240 in total.
+- About 30 samples per task from the dev split (7 tasks: remove, add_replace, enhance, restore, change_color, formatting, open_ended), about 210 in total; a sample belongs to one task only.
 - Generalists run on all of them. A specialist runs only on its task's samples.
 
 **Inputs.**
@@ -240,7 +240,8 @@ Rejected in that search: ASUKA (CVPR 2025) and GeoRemover (NeurIPS 2025), FLUX.1
 **Outputs.**
 - Images go to `work/editors/<model>/<sample id>.png`.
 - Masks go to `work/editors/masks/<sample id>.png`.
-- One line per sample goes to `work/editors/<model>/runs.jsonl`: status (`ok`, `failed`, `no-mask`), seconds per image, peak GPU memory, settings.
+- One line per sample goes to `work/editors/<model>/runs.jsonl`: status (`ok`, `failed`, `black`, `no-mask`, `n/a`), seconds per image, peak GPU memory, settings.
+- Reports per task in `work/editors/<task>/report.md`, all tasks and models in `work/editors/summary.md`.
 
 **Order of work.**
 1. Smoke run on 5 samples: it loads in fp16, fits, gives no black images, and gives seconds per image.
@@ -255,24 +256,43 @@ Rejected in that search: ASUKA (CVPR 2025) and GeoRemover (NeurIPS 2025), FLUX.1
 
 **Never publish outputs of samples that show identifiable people.**
 
-Lists 2 and 3 run with `src/editors` and `notebooks/editors_remove_add.ipynb` (2 x T4, fp16). Times are the median seconds per image after the first one; memory is torch's peak.
+Every list runs with `src/editors` and `notebooks/editors_run.ipynb` (2 x T4, fp16): one session for the specialists of lists 2 to 7, then sessions for the generalists of list 1. Times are the median seconds per image after the first one; memory is torch's peak.
 
 | Model | Member | Smoke | Full run |
 |---|---|---|---|
-| LaMa (big-lama) | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.66 s, 1.1 GB. Small objects fine; large regions smeared |
-| MI-GAN | Kiên Vũ | ok (2026-11-21) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.09 s, 0.24 GB. On par with LaMa; large regions smeared |
-| RORem | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 7.4 s, 7.7 GB. Good |
-| ObjectClear | Kiên Vũ | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 9.1 s, 9.0 GB. Good; sometimes writes stray text or smudges when removing text |
-| OSOR-SDXL-Inpainting | Kiên Vũ | ok (2026-11-21; fp16 works, no black images) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.86 s, 8.2 GB. Cleanest of the five on the contact sheets (cone, people at a waterfall, leash) and 10 x faster than RORem |
-| SDXL Inpainting 0.1 (Add/Replace) | Kiên Vũ | ok (2026-11-21, plan_v3) | add_replace, 30 samples (2026-11-21): 29 ok, 1 no mask; 13.7 s, 9.6 GB. Good on Replace of small objects and text (sapphire to diamond, "Moonlight" to "Son of Saul") and on anchored additions (beard, hat); strength 1.0 for backgrounds fixed the ignored prompt. Weak where Qwen's free Add box is wrong |
-| Paint by Inpaint | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 8.9 s, 2.8 GB. Places the new thing itself, often better than a wrong Add box (beach ball, ghosts); sometimes changes the whole photo |
-| EraseDraw v0.2 | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 1.9 s, 2.8 GB. Fast; additions often small or misplaced, sometimes off-colour |
-| Grounding DINO base + SAM 2.1 large | Kiên Vũ | ok | remove: 28 of 30 masks (2 not found: "three blotches", "the stand"); add_replace: 29 of 30 (Qwen named no target for a logo). Rules v3 (2026-11-21): additions worn on a face or head are anchored on it; Add boxes capped at 30% of the image; a background plan with nothing to keep is asked again |
+| LaMa (big-lama) | Kien Vu | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.66 s, 1.1 GB. Small objects fine; large regions smeared |
+| MI-GAN | Kien Vu | ok (2026-11-21) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.09 s, 0.24 GB. On par with LaMa; large regions smeared |
+| RORem | Kien Vu | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 7.4 s, 7.7 GB. Good |
+| ObjectClear | Kien Vu | ok (2026-11-20) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 9.1 s, 9.0 GB. Good; sometimes writes stray text or smudges when removing text |
+| OSOR-SDXL-Inpainting | Kien Vu | ok (2026-11-21; fp16 works, no black images) | remove, 30 samples (2026-11-21): 28 ok, 2 no mask; 0.86 s, 8.2 GB. Cleanest of the five on the contact sheets (cone, people at a waterfall, leash) and 10 x faster than RORem |
+| SDXL Inpainting 0.1 (Add/Replace) | Kien Vu | ok (2026-11-21, plan_v3) | add_replace, 30 samples (2026-11-21): 29 ok, 1 no mask; 13.7 s, 9.6 GB. Good on Replace of small objects and text (sapphire to diamond, "Moonlight" to "Son of Saul") and on anchored additions (beard, hat); strength 1.0 for backgrounds fixed the ignored prompt. Weak where Qwen's free Add box is wrong |
+| Paint by Inpaint | Kien Vu | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 8.9 s, 2.8 GB. Places the new thing itself, often better than a wrong Add box (beach ball, ghosts); sometimes changes the whole photo |
+| EraseDraw v0.2 | Kien Vu | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 1.9 s, 2.8 GB. Fast; additions often small or misplaced, sometimes off-colour |
+| Grounding DINO base + SAM 2.1 large | Kien Vu | ok | remove: 28 of 30 masks (2 not found: "three blotches", "the stand"); add_replace: 29 of 30 (Qwen named no target for a logo). Rules v3 (2026-11-21): additions worn on a face or head are anchored on it; Add boxes capped at 30% of the image; a background plan with nothing to keep is asked again |
 | Real-ESRGAN x4plus | Stevenlee206 | ok 5/5, 0.8 GB (2026-11-22) | ok 30/30, 5.3 s per image, 0.83 GB; gain 0.00 ns (ImageReward), +0.03 ns (EditReward) |
 | HVI-CIDNet | Stevenlee206 | ok 1/1 (4 skipped: not low-light), 1.2 GB | ok 7/7 low-light (23 skipped), 0.3 s per image, 1.15 GB; n = 7, brightens strongly, EditReward -0.21 ns |
 | InstructIR | Stevenlee206 | ok 5/5, 1.1 GB | ok 30/30, 0.5 s per image, 1.30 GB; EditReward -0.10 (significant), ImageReward +0.03 ns |
 | VOSR 2.0 | Stevenlee206 | ok 5/5, 8.8 GB (first run failed on a missing `fairscale`, fixed) | ok 30/30, 10.1 s per image, 9.10 GB; EditReward +0.11 (significant), ImageReward +0.04 ns |
 | AceTone | Stevenlee206 | unsupported (needs a reference photo) | left out, see "Left out" |
+| Real-ESRGAN x4plus, HVI-CIDNet, InstructIR, VOSR 2.0 in `src/editors` (enhance; VOSR also restore) | | code ready (2026-11-24), smoke run pending | |
+| InstantIR | | code ready (2026-11-24), smoke run pending | |
+| CodeFormer | | code ready (2026-11-24), smoke run pending | |
+| GFPGAN v1.4 | | code ready (2026-11-24), smoke run pending | |
+| DDColor | | code ready (2026-11-24), smoke run pending | |
+| SDXL Inpainting 0.1 (recolor) | | code ready (2026-11-24), smoke run pending | |
+| BEN2 | | code ready (2026-11-24), smoke run pending | |
+| BiRefNet | | code ready (2026-11-24), smoke run pending | |
+| SDXL Inpainting 0.1 (outpainting) | | code ready (2026-11-24), smoke run pending | |
+| Real-ESRGAN x4plus (resize up) | | code ready (2026-11-24), smoke run pending | |
+| plain code | | code ready (2026-11-24), smoke run pending | |
+| InstructPix2Pix | | code ready (2026-11-24), smoke run pending | |
+| MagicBrush | | code ready (2026-11-24), smoke run pending | |
+| RealEdit | | code ready (2026-11-24), smoke run pending | |
+| VIBE | | code ready (2026-11-24), smoke run pending | |
+| FLUX.2 [klein] 4B | | code ready (2026-11-24), smoke run pending | |
+| VAREdit 2B | | code ready (2026-11-24), smoke run pending | |
+| FLUX 3 Image Klein | | code ready (2026-11-24), smoke run pending | |
+| OmniGen2 | | code ready (2026-11-24), smoke run pending | |
 
 Findings of the full runs (2026-11-21; no scores yet, the scorer is built separately: judged on the contact sheets):
 - Remove: OSOR first (fast and clean), then RORem and ObjectClear; LaMa and MI-GAN are the fast baselines.
@@ -283,6 +303,8 @@ Findings of the full runs (2026-11-21; no scores yet, the scorer is built separa
   the leash", "the Christmas tree" for "make the dog look like Dobby"), or places a free Add box badly (a Rolls
   Royce box of 1% at the man's feet).
 
-Enhance (Steven's standalone run, 2026-11-22, 30 dev samples, scored with ImageReward and EditReward): gain =
-reward(output) - reward(input), 95% bootstrap interval; "ns" = interval includes zero. Report:
-`ENHANCE_BENCHMARK_REPORT.md`.
+Enhance (Steven's standalone run, 2026-11-22, 30 dev samples of any Enhance category, scored with ImageReward and
+EditReward, not yet with our scorer): gain = reward(output) - reward(input), 95% bootstrap interval; "ns" = interval
+includes zero. Looking at the images: HVI-CIDNet brightens strongly with a blue/magenta cast, InstructIR and
+Real-ESRGAN change little, VOSR 2.0 sharpens while keeping colours. HVI-CIDNet's keyword low-light test also matched
+3 requests that do not ask for light. These models now run in `src/editors` on the enhance task's own samples.
