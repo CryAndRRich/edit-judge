@@ -182,6 +182,7 @@
   function renderCollage(samples) {
     const box = $("#collage");
     if (!box || !samples.length) return;
+    if (getComputedStyle(box).display === "none") return;     // this theme uses another backdrop
     box.innerHTML = COLLAGE.map(([left, top, rot, shape], i) => {
       const s = samples[i % samples.length];
       return `<figure class="collage-tile ${shape}" style="left:${left}%;top:${top}%;--rot:${rot}deg;animation-delay:${i * 60}ms"><img src="${esc(s.url)}" alt="" decoding="async"></figure>`;
