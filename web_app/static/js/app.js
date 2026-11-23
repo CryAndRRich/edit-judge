@@ -93,6 +93,7 @@
     }
     $$(".sample").forEach((node) => node.classList.toggle("active", !!image && image.kind === "sample" && node.dataset.id === image.id));
     updateRunButton();
+    updateSteps();
   }
 
   async function uploadFile(file) {
@@ -182,6 +183,7 @@
   function renderCollage(samples) {
     const box = $("#collage");
     if (!box || !samples.length) return;
+    if (getComputedStyle(box).display === "none") return;     // this theme uses another backdrop
     box.innerHTML = COLLAGE.map(([left, top, rot, shape], i) => {
       const s = samples[i % samples.length];
       return `<figure class="collage-tile ${shape}" style="left:${left}%;top:${top}%;--rot:${rot}deg;animation-delay:${i * 60}ms"><img src="${esc(s.url)}" alt="" decoding="async"></figure>`;
@@ -208,6 +210,7 @@
     $("#char-count").textContent = `${text.length} / 500`;
     $$("#quick-tags .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.tag === text.trim()));
     updateRunButton();
+    updateSteps();
     clearTimeout(state.routeTimer);
     state.routeTimer = setTimeout(previewRoute, 220);
   }
@@ -238,6 +241,41 @@
     }
   }
 
+  // interactive progress timeline (any number of .stepper elements): image -> instruction -> run & score -> pick
+  function updateSteps() {
+    const hasResult = !!state.result && !state.running;
+    const done = {
+      image: !!(state.image && state.image.id),
+      prompt: $("#instruction").value.trim().length > 0,
+      run: hasResult,
+      result: hasResult,
+    };
+    const order = ["image", "prompt", "run", "result"];
+    const current = state.running ? "run" : (order.find((k) => !done[k]) || "result");
+    $$(".stepper li[data-stage]").forEach((li) => {
+      const k = li.dataset.stage;
+      li.classList.toggle("current", k === current);
+      li.classList.toggle("done", !!done[k] && k !== current);
+      li.classList.toggle("busy", k === "run" && state.running);
+      const btn = $(".st", li);
+      if (btn) btn.setAttribute("aria-current", k === current ? "step" : "false");
+      if (k === "run" && !state.running) { const sub = $(".st-sub", li); if (sub) sub.textContent = ""; }
+    });
+  }
+
+  function bindSteps() {
+    const go = {
+      image: () => { const z = $("#dropzone"); z.scrollIntoView({ behavior: "smooth", block: "center" }); z.focus({ preventScroll: true }); },
+      prompt: () => { const t = $("#instruction"); t.scrollIntoView({ behavior: "smooth", block: "center" }); t.focus({ preventScroll: true }); },
+      run: () => { const b = $("#run-btn"); b.scrollIntoView({ behavior: "smooth", block: "center" }); if (!b.disabled) b.focus({ preventScroll: true }); },
+      result: () => (state.result ? $("#results") : $("#main")).scrollIntoView({ behavior: "smooth", block: "start" }),
+    };
+    $$(".stepper li[data-stage]").forEach((li) => {
+      const btn = $(".st", li);
+      if (btn) btn.addEventListener("click", () => go[li.dataset.stage]());
+    });
+  }
+
   function updateRunButton() {
     const ready = state.image && state.image.id && $("#instruction").value.trim().length > 0 && !state.running;
     $("#run-btn").disabled = !ready;
@@ -250,6 +288,7 @@
     if (!instruction) return;
     state.running = true;
     updateRunButton();
+    updateSteps();
     const button = $("#run-btn");
     button.classList.add("loading");
     $("#run-label").textContent = "Running models…";
@@ -282,6 +321,7 @@
     } finally {
       showLive(false);
       state.running = false;
+      updateSteps();
       button.classList.remove("loading");
       $("#run-label").textContent = "Run Models";
       const spinner = button.querySelector(".spinner");
@@ -296,6 +336,7 @@
     const pct = job.status === "done" ? 100 : Math.max(4, Math.round((job.done / total) * (job.status === "scoring" ? 100 : 92)));
     $("#progress-bar").style.width = `${pct}%`;
     $("#progress-count").textContent = `${job.done}/${total}`;
+    $$(".stepper li[data-stage=run] .st-sub").forEach((n) => { n.textContent = `${job.done}/${total}`; });
     $("#progress-text").textContent = {
       queued: "Queued…", running: "Running candidate models…", scoring: "Scoring edits against the original…",
       done: "Done", error: "Failed",
@@ -333,7 +374,9 @@
     renderFilters();
     renderGrid();
     renderTable();
-    if (scroll && window.innerWidth < 1080) $("#results").scrollIntoView({ behavior: "smooth" });
+    updateSteps();
+    // bring the results into view when they start below the fold (every layout stacks the canvas differently)
+    if (scroll && $("#results").getBoundingClientRect().top > window.innerHeight * 0.6) $("#results").scrollIntoView({ behavior: "smooth" });
   }
 
   function sameAspect(a, b) {
@@ -626,6 +669,7 @@
   // ---------------------------------------------------------------- init
   async function init() {
     bindDropzone();
+    bindSteps();
     $("#quick-tags").innerHTML = QUICK_TAGS.map((t) => `<button class="chip" type="button" data-tag="${esc(t)}">${esc(t)}</button>`).join("");
     $$("#quick-tags .chip").forEach((chip) => chip.addEventListener("click", () => { setInstruction(chip.dataset.tag); $("#instruction").focus(); }));
     $("#instruction").addEventListener("input", onInstruction);
