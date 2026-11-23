@@ -26,7 +26,6 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | OSOR-SDXL-Inpainting | ECCV 2026 | 2 Remove (added 2026-11-21) |
 | ObjectClear | CVPR 2026 | 2 Remove |
 | VOSR 2.0 | CVPR 2026 | 4 Enhance, 5 Restore |
-| AceTone | CVPR 2026 | 4 Enhance (also whole-image tone in 6 Change-Color) |
 | FLUX.2 [klein] 4B | 01/2026 | 1 Shared |
 | VIBE | 12/2025 | 1 Shared |
 | OmniGen2 | 06/2025 | 1 Shared |
@@ -51,7 +50,7 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | Grounding DINO base | ECCV 2024 | Masks for lists 2, 3, 6 and 7 |
 | SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3, 6 and 7 |
 
-That is 27 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
+That is 26 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
 
 ## Rules
 
@@ -127,7 +126,6 @@ All of these need a mask (see Grounding).
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
 | VOSR 2.0 | CVPR 2026 | hf:CSWRY/VOSR (`VOSR2/`, `Qwen-Image-vae-2d/`, `torch_cache/`), gh:cswry/VOSR | about 7.0 in fp32 (DiT 1.4B 5.6, DINOv2-L 1.2, VAE 0.2) | Apache 2.0 | medium | One-step generative super-resolution. VOSR 2.0 does not use SD 2.1 (only the older 0.5B models do). `inference_vosr_onestep.py -c preset/ckpts/VOSR2 -u 1` for sharpening without upscaling (the code allows 1; the README only shows 4). Runs in fp32 (no dtype flag); use `--tile_size 512` for large photos. Run from the repository root (relative paths). Bad images are skipped silently: count the outputs. |
-| AceTone | CVPR 2026 | hf:Vivre/AceTone-3B-PST-Preview, gh:martian422/AceTone (branch `open-source-ready`) | 8.1 (a Qwen2.5-VL-3B-type VLM) | Apache 2.0 | medium | Writes a 3D colour LUT from the instruction, then applies it. It changes global colour and tone only ("make it warmer", "vintage look"), never local content. Needs the repository's `model/` code and VQ checkpoint; write a short inference script from `demo/predict_lut.py`. Patch bf16 to fp16 and flash-attention-2 to `sdpa`. |
 | HVI-CIDNet | CVPR 2025 | hf:Fediory/HVI-CIDNet-Generalization, gh:Fediory/HVI-CIDNet | 0.008 (1.9M parameters) | MIT | easy | For dark photos. `eval_hf.py` with the "generalization" weights, which the authors recommend for real photos; `alpha_i` sets the brightness. Skip `requirements.txt` (torch 1.13). Nothing stops it from brightening a photo that is already well lit, so run it only on lighting requests. |
 | InstructIR | ECCV 2024 | hf:marcosv/InstructIR, gh:mv-lab/InstructIR | 0.06 + text encoder TaylorAI/bge-micro-v2 | MIT | medium | Needs code from the repository: `configs/eval5d.yml`, `models/`, `text/`. Handles 7 degradations named in the instruction: noise, blur, rain, haze, low light, enhancement, upscaling. The authors say it generalises poorly to real photos. |
 | *Classic:* Real-ESRGAN x4plus | ICCV 2021 (workshop) | `RealESRGAN_x4plus.pth` from gh:xinntao/Real-ESRGAN, release v0.1.0 | 0.07 | BSD-3 | easy | Load with the `spandrel` package (0.4.2, 2026). The `realesrgan` and `basicsr` packages are from 2022 and break on new torchvision. |
@@ -149,8 +147,6 @@ All of these need a mask (see Grounding).
 |---|---|---|---|---|---|---|
 | SDXL Inpainting 0.1, one region | 09/2023 | hf:diffusers/stable-diffusion-xl-1.0-inpainting-0.1 | 6.9 | OpenRAIL++ | easy | For "make the car red": mask the object and prompt with the new colour. Same settings as list 3. |
 | DDColor | ICCV 2023 | hf:piddnad/ddcolor_modelscope, gh:piddnad/DDColor | 0.9 | Apache 2.0 | medium | Use the `modelscope` checkpoint, which MODEL_ZOO.md recommends for photos outside ImageNet. Clone the repository: `DDColorHF.from_pretrained` needs its bundled basicsr on the path. Input 512; the colour is upscaled back to full size. Colourises the whole image only. |
-
-AceTone (list 4) also runs here on requests that change the colour tone of the whole photo.
 
 **No recent photo colouriser.**
 - We found no usable colourisation model for photos from 2025-2026.
@@ -184,6 +180,7 @@ AceTone (list 4) also runs here on requests that change the colour tone of the w
 
 | Model | Date | Why |
 |---|---|---|
+| AceTone-3B-PST-Preview | CVPR 2026 | Unsupported for our task, found when the Enhance smoke run was prepared (2026-11-22): the only released checkpoint (PST = photo style transfer) takes the raw photo **and a reference photo** ("mimic the toning method", `demo/predict_lut.py`, `eval/predict_lut_ddp.py`), not an instruction; the repository has no text-conditioned inference. Our samples have no reference photo, and using a human edit as one would leak the answer. It was listed here before as "writes a LUT from the instruction", which the checkpoint does not do |
 | DIM-4.6B-Edit | ICLR 2026 | Its demo sends every instruction to GPT-4o (a paid API) first; bf16 and flash-attention-2 hard-coded; non-commercial |
 | VAREdit 8B | ICLR 2026 | 33.5 GB in fp32 (about 17 GB in fp16), more than one T4; single-GPU code |
 | NP-Edit ("Learning an Image Editing Model without Image Editing Pairs") | ICLR 2026 | Only an unofficial reimplementation on Z-Image 6B: 20.5 GB on one GPU, flash-attn 4, tested on H200 |
@@ -271,6 +268,11 @@ Lists 2 and 3 run with `src/editors` and `notebooks/editors_remove_add.ipynb` (2
 | Paint by Inpaint | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 8.9 s, 2.8 GB. Places the new thing itself, often better than a wrong Add box (beach ball, ghosts); sometimes changes the whole photo |
 | EraseDraw v0.2 | Kiên Vũ | ok (2026-11-21) | add_replace, 14 Add samples (2026-11-21): 14 ok; 1.9 s, 2.8 GB. Fast; additions often small or misplaced, sometimes off-colour |
 | Grounding DINO base + SAM 2.1 large | Kiên Vũ | ok | remove: 28 of 30 masks (2 not found: "three blotches", "the stand"); add_replace: 29 of 30 (Qwen named no target for a logo). Rules v3 (2026-11-21): additions worn on a face or head are anchored on it; Add boxes capped at 30% of the image; a background plan with nothing to keep is asked again |
+| Real-ESRGAN x4plus | Stevenlee206 | ok 5/5, 0.8 GB (2026-11-22) | ok 30/30, 5.3 s per image, 0.83 GB; gain 0.00 ns (ImageReward), +0.03 ns (EditReward) |
+| HVI-CIDNet | Stevenlee206 | ok 1/1 (4 skipped: not low-light), 1.2 GB | ok 7/7 low-light (23 skipped), 0.3 s per image, 1.15 GB; n = 7, brightens strongly, EditReward -0.21 ns |
+| InstructIR | Stevenlee206 | ok 5/5, 1.1 GB | ok 30/30, 0.5 s per image, 1.30 GB; EditReward -0.10 (significant), ImageReward +0.03 ns |
+| VOSR 2.0 | Stevenlee206 | ok 5/5, 8.8 GB (first run failed on a missing `fairscale`, fixed) | ok 30/30, 10.1 s per image, 9.10 GB; EditReward +0.11 (significant), ImageReward +0.04 ns |
+| AceTone | Stevenlee206 | unsupported (needs a reference photo) | left out, see "Left out" |
 
 Findings of the full runs (2026-11-21; no scores yet, the scorer is built separately: judged on the contact sheets):
 - Remove: OSOR first (fast and clean), then RORem and ObjectClear; LaMa and MI-GAN are the fast baselines.
@@ -280,3 +282,7 @@ Findings of the full runs (2026-11-21; no scores yet, the scorer is built separa
   ("Photoshop Ronald McDonald into the photo" replaced the young man), adds extra targets ("the dog" for "remove
   the leash", "the Christmas tree" for "make the dog look like Dobby"), or places a free Add box badly (a Rolls
   Royce box of 1% at the man's feet).
+
+Enhance (Steven's standalone run, 2026-11-22, 30 dev samples, scored with ImageReward and EditReward): gain =
+reward(output) - reward(input), 95% bootstrap interval; "ns" = interval includes zero. Report:
+`ENHANCE_BENCHMARK_REPORT.md`.
