@@ -17,6 +17,7 @@ changes and the prompt the thing in its new colour (plan_v4). List 7 (formatting
 """
 
 from ..base import Editor
+from .fetch import pipeline_files
 
 MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
 LONG_SIDE = 1024
@@ -30,12 +31,17 @@ def working_size(width: int, height: int, long_side: int = LONG_SIDE) -> tuple[i
 
 class SDXLInpaint(Editor):
     name = "sdxl-inpaint"
+    repos = (MODEL,)
+    download_gb = 7.0
     model_id = f"{MODEL} (fp16 variant)"
     tasks = ("add_replace", "change_color")
     ops = ("add", "replace", "background", "recolor")
     settings_version = 2
     settings = {"long_side": LONG_SIDE, "steps": 20, "guidance": 8.0, "strength": 0.99,
                 "strength_by_op": STRENGTH, "prompt": "plan"}
+
+    def fetch(self) -> None:
+        pipeline_files(MODEL, variant="fp16")
 
     def load(self, device: str) -> None:
         import torch
@@ -93,6 +99,7 @@ class SDXLOutpaint(SDXLInpaint):
     plan's direction, the new border (and OVERLAP px of the seam) is painted from the plan's prompt (the whole scene)
     at strength 1.0, and the original pixels are put back where they were. The output keeps the new size."""
     name = "sdxl-outpaint"
+    uses_plan = True
     tasks = ("formatting",)
     ops = ("format",)
     uses_mask = False

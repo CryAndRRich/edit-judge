@@ -26,11 +26,18 @@ BACKGROUND = (255, 255, 255)
 
 class BEN2(Editor):
     name = "ben2"
+    repos = (REPO,)
+    download_gb = 0.4
     model_id = f"{REPO}@{REVISION[:7]}"
     tasks = ("formatting",)
     ops = ("cutout",)
     uses_mask = False
     settings = {"size": 1024, "refine_foreground": False, "autocast": "fp16", "background": "white"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import hf_hub_download
+        hf_hub_download(REPO, "BEN2.py", revision=REVISION)
+        hf_hub_download(REPO, "model.safetensors", revision=REVISION)
 
     def load(self, device: str) -> None:
         import importlib.util

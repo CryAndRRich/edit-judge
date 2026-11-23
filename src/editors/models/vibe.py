@@ -37,6 +37,8 @@ WEIGHTS = ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "
 
 class VIBE(Editor):
     name = "vibe"
+    repos = (MODEL,)
+    download_gb = 9.3
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]})"
     tasks = TASKS
     uses_mask = False
@@ -44,6 +46,10 @@ class VIBE(Editor):
                f"--no-deps https://github.com/{REPO}/archive/{COMMIT}.tar.gz")
     settings = {"steps": STEPS, "guidance": GUIDANCE, "image_guidance": IMAGE_GUIDANCE, "size": "sana bin",
                 "dtype": "float16", "prompt": "instruction"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        snapshot_download(MODEL, revision=REVISION, allow_patterns=WEIGHTS)
 
     def load(self, device: str) -> None:
         import torch

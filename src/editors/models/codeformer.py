@@ -64,12 +64,19 @@ def import_repository(folder) -> None:
 
 class CodeFormer(Editor):
     name = "codeformer"
+    local_dirs = (f"CodeFormer-{COMMIT}",)
+    download_gb = 0.6
     model_id = f"{RELEASE}/codeformer.pth (code {COMMIT[:7]})"
     tasks = ("restore",)
     uses_mask = False
     settings = {"fidelity_weight": FIDELITY, "upscale": UPSCALE, "detector": DETECTOR, "parsing": "parsenet",
                 "face_size": 512, "detect_short_side": DETECT_SHORT_SIDE, "eye_dist_threshold": EYE_DISTANCE,
                 "adain": True, "bg_upsampler": None, "face_upsample": False, "dtype": "fp32"}
+
+    def fetch(self) -> None:
+        repository_code(REPO, COMMIT)
+        for file_name in WEIGHTS:
+            weight_file(f"{RELEASE}/{file_name}")
 
     def load(self, device: str) -> None:
         import torch

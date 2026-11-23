@@ -24,12 +24,17 @@ the faces change. Photos without a detected face come back unchanged. No prompt,
 import sys
 
 from ..base import Editor
+from .fetch import release_file
 from .lama import download
 
 URL = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"
 SIZE_BYTES = 348632874
 FACE_MODELS = {"detection_Resnet50_Final.pth": 109497761,      # facexlib release v0.1.0
                "parsing_parsenet.pth": 85331193}               # facexlib release v0.2.2
+FACE_URLS = {"detection_Resnet50_Final.pth":
+             "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
+             "parsing_parsenet.pth":
+             "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth"}
 UPSCALE = 1
 WEIGHT = 0.5
 
@@ -46,6 +51,8 @@ def patch_torchvision() -> None:
 
 class GFPGAN(Editor):
     name = "gfpgan"
+    local_dirs = ("gfpgan",)
+    download_gb = 0.55
     model_id = URL
     tasks = ("restore",)
     uses_mask = False
@@ -55,6 +62,12 @@ class GFPGAN(Editor):
     settings = {"weights": "GFPGANv1.4.pth (release v1.3.0)", "arch": "clean", "channel_multiplier": 2,
                 "upscale": UPSCALE, "bg_upsampler": None, "weight": WEIGHT, "detector": "retinaface_resnet50",
                 "parse": "parsenet", "dtype": "fp32", "prompt": "ignored"}
+
+    def fetch(self) -> None:
+        from ...paths import MODELS_DIR
+        download(URL, SIZE_BYTES)
+        for file_name, size in FACE_MODELS.items():     # where facexlib looks for them (load())
+            release_file(FACE_URLS[file_name], MODELS_DIR / "gfpgan" / "weights", size)
 
     def load(self, device: str) -> None:
         import contextlib

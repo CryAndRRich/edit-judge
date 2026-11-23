@@ -27,11 +27,17 @@ BACKGROUND = (255, 255, 255)
 
 class BiRefNet(Editor):
     name = "birefnet"
+    repos = (MODEL,)
+    download_gb = 0.45
     model_id = f"{MODEL}@{REVISION[:7]}"
     tasks = ("formatting",)
     ops = ("cutout",)
     uses_mask = False
     settings = {"size": SIZE, "normalisation": "imagenet", "background": "white", "prompt": "ignored"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        snapshot_download(MODEL, revision=REVISION)
 
     def load(self, device: str) -> None:
         import torch

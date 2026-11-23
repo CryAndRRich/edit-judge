@@ -28,6 +28,7 @@ it, so the script runs without it too).
 import sys
 
 from ..base import Editor
+from .fetch import pipeline_files
 from .fetch import repository_code
 
 REPO = "instantX-research/InstantIR"
@@ -51,12 +52,23 @@ NEGATIVE_PROMPT = ("blurry, out of focus, unclear, depth of field, over-smooth, 
 
 class InstantIR(Editor):
     name = "instantir"
+    repos = (MODEL, SDXL, DINO)
+    local_dirs = (f"InstantIR-{COMMIT}",)
+    download_gb = 15.0
     model_id = f"{MODEL}@{REVISION[:7]} on {SDXL}@{SDXL_REVISION[:7]}, {DINO}@{DINO_REVISION[:7]} (code {COMMIT[:7]})"
     tasks = ("restore",)
     uses_mask = False
     settings = {"size": "infer.py resize_img (short side >= 768, long side <= 1024, multiples of 64)",
                 "steps": STEPS, "guidance": GUIDANCE, "preview_start": 0.0, "creative_start": 1.0,
                 "scheduler": "DDPM, LCM single-step previewer", "prompt": "infer.py default"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        repository_code(REPO, COMMIT)
+        snapshot_download(MODEL, revision=REVISION, allow_patterns=["models/*"])
+        snapshot_download(DINO, revision=DINO_REVISION,
+                          allow_patterns=["config.json", "preprocessor_config.json", "model.safetensors"])
+        pipeline_files(SDXL, revision=SDXL_REVISION, variant="fp16")
 
     def load(self, device: str) -> None:
         import torch

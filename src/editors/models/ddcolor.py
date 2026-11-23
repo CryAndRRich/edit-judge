@@ -31,12 +31,21 @@ INPUT_SIZE = 512
 
 class DDColor(Editor):
     name = "ddcolor"
+    repos = (MODEL,)
+    local_dirs = (f"DDColor-{COMMIT}",)
+    download_gb = 0.95
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]})"
     tasks = ("change_color",)
     ops = ("colorize",)
     uses_mask = False
     settings = {"checkpoint": "ddcolor_modelscope", "input_size": INPUT_SIZE, "chroma_upscale": "nearest",
                 "dtype": "fp32"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import hf_hub_download
+        repository_code(REPO, COMMIT)
+        hf_hub_download(MODEL, "config.json", revision=REVISION)
+        hf_hub_download(MODEL, WEIGHTS, revision=REVISION)
 
     def load(self, device: str) -> None:
         import json

@@ -41,6 +41,7 @@ def carry_out(image, plan: dict):
 
 class PlainCode(Editor):
     name = "plain-code"
+    uses_plan = True
     model_id = "PIL"
     tasks = ("formatting",)
     uses_mask = False

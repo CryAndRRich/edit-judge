@@ -64,9 +64,19 @@ class Editor:
     plan: dict | None = None    # the sample's plan (plan.py) or None, set by the runner before each edit()
     keep_size: bool = True  # False: the output keeps its own size (crop, extend, upscale): no resize, no paste-back;
                             # read by the runner after each edit(), so an editor may set it per sample
+    uses_plan: bool = False # True: needs the sample's plan (format actions) although it uses no mask
     install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each (src/common/envs.py)
     isolated: bool = False
     settings: dict = {}     # the settings used, recorded with every output
+    # Downloads, for the notebook's scheduler: prefetch while another model runs, delete after the last user
+    repos: tuple[str, ...] = ()     # Hugging Face repositories it downloads (deleted from the HF cache afterwards)
+    local_dirs: tuple[str, ...] = ()    # folders it makes in EJ_MODELS_DIR (code, weights; deleted afterwards)
+    download_gb: float = 0.0    # about how much it downloads
+    gpus: int = 1           # GPUs it needs (2: split over both)
+
+    def fetch(self) -> None:
+        """Download the code and weights of load() without loading anything (no GPU, no heavy import), so the
+        notebook can fetch the next model while another one runs; load() then finds them in the caches."""
 
     def applies(self, sample: dict, plan: dict | None) -> bool:
         """Whether the editor runs on `sample` (others are recorded "n/a"); by default its `ops`."""
@@ -128,7 +138,9 @@ def gpu_peak():
 
 
 def run(editor: Editor, task: str, limit: int | None = None, device: str | None = None, allow_cpu: bool = False,
-        client_name: str = DEFAULT_CLIENT, version: int | None = None) -> dict:
+        client_name: str = DEFAULT_CLIENT, version: int | None = None, per_editor: int | None = None) -> dict:
+    """`limit`: the first N samples of the task; `per_editor`: the first N samples the editor applies to (and, for a
+    mask model, that have a mask), so a quick test gives every editor something to do."""
     from PIL import Image
 
     version = version or plan_version(task)
@@ -136,10 +148,16 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
         raise SystemExit(f"{editor.name} does not run on {task} (its tasks: {', '.join(editor.tasks)})")
     samples = load_task_samples(task, limit)
     plans, masks, runs = load_plans(client_name, version), load_masks(version), load_runs(editor.name, version)
+    if editor.uses_mask or editor.uses_plan:
+        unplanned = [s["id"] for s in samples if task in PLANNED_TASKS and s["id"] not in plans]
+        if unplanned:
+            raise SystemExit(f"{len(unplanned)} samples have no plan yet (e.g. {unplanned[0]}): run `plan` first")
+    if per_editor is not None:
+        usable = [s for s in samples if editor.applies(s, plans.get(s["id"]))
+                  and (not editor.uses_mask or masks.get(s["id"], {}).get("status") == "ok")]
+        chosen = {s["id"] for s in usable[:per_editor]}
+        samples = [s for s in samples if s["id"] in chosen]
     todo = [s for s in samples if runs.get(s["id"], {}).get("status") not in FINAL]
-    unplanned = [s["id"] for s in todo if task in PLANNED_TASKS and s["id"] not in plans]
-    if unplanned:
-        raise SystemExit(f"{len(unplanned)} samples have no plan yet (e.g. {unplanned[0]}): run `plan` first")
     applies = [s for s in todo if editor.applies(s, plans.get(s["id"]))]
     if editor.uses_mask:
         missing = [s["id"] for s in applies if s["id"] not in masks]

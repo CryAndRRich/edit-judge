@@ -133,11 +133,17 @@ def install_flash_attn_stand_in():
 
 class VAREdit2B(Editor):
     name = "varedit-2b"
+    local_dirs = (f"VAREdit-{COMMIT}", f"VAREdit-weights-{REVISION[:7]}")
+    download_gb = 22.0
     model_id = f"{MODEL}@{REVISION[:7]} {CHECKPOINT} + {VAE_MODEL}@{VAE_REVISION[:7]} (code {COMMIT[:7]})"
     tasks = TASKS
     uses_mask = False
     settings = {"size": SIZE, "pad": "square, white", "cfg": CFG, "tau": TAU, "top_k": 900, "top_p": 0.97,
                 "precision": "fp16 (VAE decoder fp32)", "prompt": "instruction"}
+
+    def fetch(self) -> None:
+        repository_code()
+        weights_folder()
 
     def load(self, device: str) -> None:
         import numpy as np

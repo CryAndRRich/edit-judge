@@ -589,8 +589,11 @@ python -m src.editors summary                        # work/editors/summary.md: 
   samples the shares have wide intervals.
 
 Outputs in `work/editors/`: `samples/`, `plans/`, `masks/`, `<model>/` (`<sample id>.png`, `runs.jsonl`),
-`<task>/` (`scores.jsonl`, `report.md`, `sheets/`), `summary.md`. Notebook: `editors_run.ipynb` (one session runs
-the specialists of lists 2 to 7, the next ones the generalists of list 1).
+`<task>/` (`scores.jsonl`, `report.md`, `sheets/`), `summary.md`. Notebook: `editors_run.ipynb`, three sessions: `preflight`
+(no GPU: builds every environment, downloads every model and runs the small ones on the CPU), `quick` (every model on
+2 samples per task, about 6 h on 2 x T4) and `full`. Models run two at a time, one per T4, while a background thread
+downloads the next ones (`python -m src.editors fetch`, sizes and folders from `python -m src.editors info`); each
+model's downloads are deleted after its last run.
 
 ## Data rules
 

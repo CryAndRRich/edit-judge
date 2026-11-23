@@ -256,7 +256,7 @@ Rejected in that search: ASUKA (CVPR 2025) and GeoRemover (NeurIPS 2025), FLUX.1
 
 **Never publish outputs of samples that show identifiable people.**
 
-Every list runs with `src/editors` and `notebooks/editors_run.ipynb` (2 x T4, fp16): one session for the specialists of lists 2 to 7, then sessions for the generalists of list 1. Times are the median seconds per image after the first one; memory is torch's peak.
+Every list runs with `src/editors` and `notebooks/editors_run.ipynb` (2 x T4, fp16): a `preflight` session without GPU (environments, downloads, small models on the CPU), a `quick` session (every model on 2 samples per task), then `full` runs. Times are the median seconds per image after the first one; memory is torch's peak.
 
 | Model | Member | Smoke | Full run |
 |---|---|---|---|

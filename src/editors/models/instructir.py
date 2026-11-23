@@ -70,12 +70,26 @@ def pad_to_multiple(array, factor: int):
 
 class InstructIR(Editor):
     name = "instructir"
+    repos = (MODEL,)
+    local_dirs = (f"InstructIR-{COMMIT}", ENCODER.split("/")[0])
+    download_gb = 0.2
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]}, text encoder {ENCODER}@{ENCODER_REVISION[:7]})"
     tasks = ("enhance",)
     uses_mask = False
     settings = {"weights": f"{IMAGE_WEIGHTS}, {HEAD_WEIGHTS}", "config": "configs/eval5d.yml",
                 "text_encoder": ENCODER, "dtype": "fp32", "padding": f"reflect to a multiple of {MULTIPLE}",
                 "prompt": "instruction"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import hf_hub_download, snapshot_download
+
+        from ...paths import MODELS_DIR
+        repository_code(REPO, COMMIT)
+        hf_hub_download(MODEL, IMAGE_WEIGHTS, revision=REVISION)
+        hf_hub_download(MODEL, HEAD_WEIGHTS, revision=REVISION)
+        snapshot_download(ENCODER, revision=ENCODER_REVISION,
+                          local_dir=MODELS_DIR / ENCODER / ENCODER_REVISION[:7],
+                          allow_patterns=["*.json", "*.txt", "model.safetensors"])
 
     def load(self, device: str) -> None:
         import os

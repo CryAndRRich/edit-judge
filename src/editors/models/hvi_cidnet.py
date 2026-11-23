@@ -37,12 +37,20 @@ GAMMA = 1.0
 
 class HVICIDNet(Editor):
     name = "hvi-cidnet"
+    repos = (MODEL,)
+    local_dirs = (f"HVI-CIDNet-{COMMIT}",)
+    download_gb = 0.05
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]})"
     tasks = ("enhance",)
     ops = ("light",)
     uses_mask = False
     settings = {"weights": "generalization", "alpha_s": ALPHA_S, "alpha_i": ALPHA_I, "gamma": GAMMA,
                 "pad_modulo": MODULO, "dtype": "fp32"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import hf_hub_download
+        repository_code(REPO, COMMIT)
+        hf_hub_download(MODEL, WEIGHTS, revision=REVISION)
 
     def load(self, device: str) -> None:
         import os

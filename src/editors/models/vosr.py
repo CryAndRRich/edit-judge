@@ -48,6 +48,8 @@ def pad_to_multiple(array, factor: int):
 
 class VOSR(Editor):
     name = "vosr"
+    local_dirs = (f"VOSR-{COMMIT}",)
+    download_gb = 8.0
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]})"
     tasks = ("enhance", "restore")
     uses_mask = False
@@ -56,6 +58,12 @@ class VOSR(Editor):
                 "process_size": 512, "tile_size": 512, "tile_overlap": 32, "infer_steps": 1,
                 "align_method": "wavelet", "posterior_mode": True, "dtype": "fp32",
                 "padding": f"reflect to a multiple of {PAD_MULTIPLE}", "prompt": "ignored"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        repository = repository_code(REPO, COMMIT)
+        snapshot_download(MODEL, revision=REVISION, local_dir=str(repository / "preset" / "ckpts"),
+                          allow_patterns=WEIGHT_PATTERNS)
 
     def load(self, device: str) -> None:
         import argparse

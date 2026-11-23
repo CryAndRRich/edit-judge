@@ -49,6 +49,9 @@ NEGATIVE_PROMPT = ("(((deformed))), blurry, over saturation, bad anatomy, disfig
 
 class OmniGen2(Editor):
     name = "omnigen2"
+    repos = (MODEL,)
+    local_dirs = (f"OmniGen2-{COMMIT}",)
+    download_gb = 31.0
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]})"
     tasks = TASKS
     uses_mask = False
@@ -56,6 +59,11 @@ class OmniGen2(Editor):
     settings = {"steps": STEPS, "text_guidance": TEXT_GUIDANCE, "image_guidance": IMAGE_GUIDANCE,
                 "cfg_range": list(CFG_RANGE), "negative_prompt": "inference.py default", "max_pixels": 1024 * 1024,
                 "dtype": "fp16", "offload": "model_cpu", "prompt": "instruction"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        repository_code(REPO, COMMIT)
+        snapshot_download(MODEL, revision=REVISION, allow_patterns=WEIGHT_FOLDERS)
 
     def load(self, device: str) -> None:
         import torch

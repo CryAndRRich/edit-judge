@@ -27,6 +27,8 @@ ENHANCE_OPS = ("light", "enhance")
 
 class RealESRGAN(Editor):
     name = "realesrgan"
+    uses_plan = True
+    download_gb = 0.07
     model_id = URL
     tasks = ("enhance", "formatting")
     uses_mask = False
@@ -41,6 +43,9 @@ class RealESRGAN(Editor):
         if sample.get("op") in ENHANCE_OPS:
             return True
         return plan is not None and plan.get("action") == "resize" and (plan.get("scale") or 0) > 1
+
+    def fetch(self) -> None:
+        download(URL, SIZE_BYTES)
 
     def load(self, device: str) -> None:
         import torch

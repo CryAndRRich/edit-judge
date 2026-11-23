@@ -45,6 +45,9 @@ LONG_SIDE = 1024        # the dataset's own limit; lower it first if cuda:1 runs
 
 class Flux3Klein(Editor):
     name = "flux3-klein"
+    repos = (REPO,)
+    download_gb = 20.3
+    gpus = 2
     model_id = f"{REPO}@{REVISION[:7]}"
     tasks = TASKS
     uses_mask = False
@@ -54,6 +57,10 @@ class Flux3Klein(Editor):
         self.settings = {"steps": STEPS, "guidance": None, "long_side": LONG_SIDE, "dtype": "float16",
                          "vae_dtype": "float32", "prompt_upsampler": False, "prompt": "instruction",
                          "devices": {"text_encoder": TEXT_DEVICE, "transformer": DENOISE_DEVICE}}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        snapshot_download(REPO, revision=REVISION, allow_patterns=list(FILES))
 
     def load(self, device: str) -> None:
         import diffusers

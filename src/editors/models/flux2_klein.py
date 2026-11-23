@@ -43,12 +43,20 @@ def working_size(width: int, height: int) -> tuple[int, int]:
 
 class Flux2Klein4B(Editor):
     name = "flux2-klein-4b"
+    repos = (REPO,)
+    download_gb = 16.0
+    gpus = 2
     model_id = f"{REPO}@{REVISION[:7]}"
     tasks = TASKS
     uses_mask = False
     install = ("diffusers==0.37.1",)
     settings = {"steps": STEPS, "guidance": GUIDANCE, "size": f"input, multiple of {MULTIPLE}",
                 "dtype": "fp16, VAE fp32", "prompt": "instruction"}
+
+    def fetch(self) -> None:
+        from huggingface_hub import snapshot_download
+        snapshot_download(REPO, revision=REVISION, allow_patterns=[
+            "model_index.json", "scheduler/*", "transformer/*", "text_encoder/*", "tokenizer/*", "vae/*"])
 
     def load(self, device: str) -> None:
         import torch

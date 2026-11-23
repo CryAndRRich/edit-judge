@@ -31,6 +31,7 @@ the simplified instruction ("Add a camel behind us."); the output is not pasted 
 
 from .. import TASKS
 from ..base import Editor
+from .fetch import pipeline_files
 
 LONG_SIDE = 512
 
@@ -49,11 +50,17 @@ class InstructEdit(Editor):
     ops = None
     uses_mask = False
 
+    download_gb = 2.2
+
     def __init__(self):
         self.model_id = f"{self.repo}@{self.revision[:7]}"
+        self.repos = (self.repo,)
         self.settings = {"long_side": LONG_SIDE, "steps": self.steps, "guidance": self.guidance,
                          "image_guidance": self.image_guidance, "scheduler": "EulerAncestral",
                          "prompt": "instruction"}
+
+    def fetch(self) -> None:
+        pipeline_files(self.repo, revision=self.revision, variant=self.variant, safety_checker=None)
 
     def load(self, device: str) -> None:
         import torch
@@ -90,6 +97,7 @@ class PaintByInpaint(InstructAdd):
 
 class EraseDraw(InstructAdd):
     name = "erasedraw"
+    download_gb = 4.3
     repo = "alpercanberk/erasedraw-v0.2"
     revision = "652876527032dd72d5b9d47cd9ed31670aa1f13d"
     steps, guidance, image_guidance = 10, 7.5, 1.0
@@ -105,6 +113,7 @@ class InstructPix2Pix(InstructEdit):
 
 class MagicBrush(InstructEdit):
     name = "magicbrush"
+    download_gb = 4.3
     repo = "vinesmsuic/magicbrush-jul7"
     revision = "d75a9f18439f67dbdc0ab113036f491ce2256c53"
     steps, guidance, image_guidance = 20, 7.0, 1.5
@@ -112,6 +121,7 @@ class MagicBrush(InstructEdit):
 
 class RealEdit(InstructEdit):
     name = "realedit"
+    download_gb = 4.3
     repo = "peter-sushko/RealEdit"
     revision = "49ae0e0507fe7a5ee30397aadd491414aecea45f"
     steps, guidance, image_guidance = 50, 7.5, 2.0
