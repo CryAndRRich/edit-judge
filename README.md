@@ -517,6 +517,15 @@ python -m src.scorer report                      # work/scorer/report.md (small 
 Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.json`, `scores.jsonl`, `head.pt`),
 `baselines/<name>.jsonl` (a score per edit) and `<name>.latency.json`, `latency.json`, `report.md`. Notebooks: `scorer_train.ipynb`, `scorer_baselines.ipynb`.
 
+## Improving ranking labels (T-045)
+
+The review loop is implemented in `src/rank/review/` and `src/scorer/oof.py`. Start with
+[REVIEW_WORKFLOW.md](REVIEW_WORKFLOW.md). The self-contained [Kaggle notebook](notebooks/ranking_review.ipynb)
+imports the original HF result ZIPs and runs the automated stages on Kaggle without downloading the images
+to an annotator's laptop. Revised labels require independent reviews and adjudication, or explicit approval
+of a group proposal recorded with `review-approve`.
+`EJ_PAIRS_FILE` switches between frozen label versions while the images stay in `EJ_DATA_DIR/images`.
+
 ## Data rules
 
 - Respect robots.txt and each site's terms, and rate-limit every request. Never bypass a block.

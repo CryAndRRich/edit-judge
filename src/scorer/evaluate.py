@@ -77,6 +77,9 @@ def pair_hit(pair: dict, scores: dict[str, float]) -> float:
 
 
 def pair_metrics(pairs: list[dict], scores: dict[str, float], rankings: dict[str, dict]) -> dict:
+    neutral_samples = {pair["id"] for pair in pairs if pair["p_a"] == 0.5}
+    neutral_pairs = sum(pair["p_a"] == 0.5 for pair in scored_pairs(pairs, scores))
+    pairs = [pair for pair in pairs if pair["p_a"] != 0.5]
     per_sample, by_source, confident = defaultdict(list), defaultdict(list), []
     weighted_hits = weight_total = 0.0
     for pair in scored_pairs(pairs, scores):
@@ -89,12 +92,12 @@ def pair_metrics(pairs: list[dict], scores: dict[str, float], rankings: dict[str
         if max(pair["p_a"], 1 - pair["p_a"]) >= CONFIDENT:
             confident.append(pair_result)
     hits = [pair_result for sample_hits in per_sample.values() for pair_result in sample_hits]
-    return {"pairs": len(hits), "accuracy": mean_or_none(hits), "ci95": bootstrap_ci(per_sample),
+    return {"pairs": len(hits), "neutral_pairs": neutral_pairs, "accuracy": mean_or_none(hits), "ci95": bootstrap_ci(per_sample),
             "weighted_accuracy": round(weighted_hits / weight_total, 4) if weight_total else None,
             "confident_pairs": len(confident), "confident_accuracy": mean_or_none(confident),
             "by_source": {source: {"pairs": len(source_hits), "accuracy": mean_or_none(source_hits)}
                           for source, source_hits in sorted(by_source.items())},
-            **top1(pairs, scores, rankings)}
+            **top1([pair for pair in pairs if pair["id"] not in neutral_samples], scores, rankings)}
 
 
 def paired_difference(pairs: list[dict], scores_a: dict[str, float], scores_b: dict[str, float],
@@ -102,6 +105,8 @@ def paired_difference(pairs: list[dict], scores_a: dict[str, float], scores_b: d
     """Accuracy of A minus accuracy of B on the pairs both scored, with a 95% bootstrap interval over samples."""
     per_sample = defaultdict(lambda: [0.0, 0.0, 0])
     for pair in scored_pairs(scored_pairs(pairs, scores_a), scores_b):
+        if pair["p_a"] == 0.5:
+            continue
         totals = per_sample[pair["id"]]
         totals[0] += pair_hit(pair, scores_a)
         totals[1] += pair_hit(pair, scores_b)
@@ -134,6 +139,8 @@ def human_agreement(pairs: list[dict], rankings: dict[str, dict]) -> dict:
     those agree (the second is a fair ceiling: the annotator's own vote is not part of the reference)."""
     with_final, leave_one_out = [], []
     for pair in pairs:
+        if pair["p_a"] == 0.5:
+            continue
         votes = {slot: order.index(pair["a"]) < order.index(pair["b"])
                  for slot, order in rankings.get(pair["id"], {}).get("rankings", {}).items()}
         for slot, prefers_a in votes.items():

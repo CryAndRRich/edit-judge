@@ -24,7 +24,7 @@ import numpy as np
 
 from ..common.device import pick_device
 from ..common.io import write_json, write_jsonl
-from ..paths import REPO_ROOT, SCORER_DIR
+from ..paths import FINAL_PAIRS, REPO_ROOT, SCORER_DIR
 from .backbones import BACKBONES, get_backbone
 from .embed import load_embeddings
 from .evaluate import eval_data, evaluate_scores
@@ -37,7 +37,8 @@ SPLITS = ("train", "dev", "test")
 
 
 def load_config(path: str = "configs/scorer.toml") -> dict:
-    with open(REPO_ROOT / path if not path.startswith("/") else path, "rb") as handle:
+    from pathlib import Path
+    with open(Path(path) if Path(path).is_absolute() else REPO_ROOT / path, "rb") as handle:
         return tomllib.load(handle)
 
 
@@ -148,7 +149,7 @@ def train_run(run: dict, defaults: dict | None = None, version: str = "all", dev
     row_of = {image_id: index for index, image_id in enumerate(ids)}
 
     def pair_tensors(split: str) -> dict:
-        kept = [pair for pair in pairs.get(split, [])
+        kept = [pair for pair in pairs.get(split, []) if (cfg["loss"] != "bt" or pair["p_a"] != 0.5)
                 if f"{pair['id']}/{pair['a']}" in row_of and f"{pair['id']}/{pair['b']}" in row_of]
         return {"a": torch.tensor([row_of[f"{pair['id']}/{pair['a']}"] for pair in kept], device=device),
                 "b": torch.tensor([row_of[f"{pair['id']}/{pair['b']}"] for pair in kept], device=device),
@@ -168,7 +169,8 @@ def train_run(run: dict, defaults: dict | None = None, version: str = "all", dev
         head, history = train_head(cfg, matrix, train, dev, seed, device)
         with torch.no_grad():
             raw = head["model"](matrix)[0].float().cpu().numpy()
-        score_mean, score_std = float(raw.mean()), float(raw.std() or 1.0)
+        training_scores = raw[train_rows.numpy()]
+        score_mean, score_std = float(training_scores.mean()), float(training_scores.std() or 1.0)
         standardised.append((raw - score_mean) / score_std)
         seed_scores = dict(zip(ids, raw.tolist()))
         accuracy = {split: result["accuracy"] for split, result in
@@ -184,7 +186,9 @@ def train_run(run: dict, defaults: dict | None = None, version: str = "all", dev
                     for split in SPLITS for statistic, function in (("mean", np.mean), ("sd", np.std))}
 
     out = SCORER_DIR / "runs" / cfg["name"]
+    from ..rank.review.common import fingerprint
     metrics = {"name": cfg["name"], "config": cfg, "version": version, "device": device,
+               "labels_sha256": fingerprint(FINAL_PAIRS),
                "features": features.shape[1], "edits": len(ids), "seconds": round(time.monotonic() - started, 1),
                "seeds": seed_rows, "seed_summary": seed_summary,
                "ensemble": evaluate_scores(ensemble_scores, pairs, rankings, splits=SPLITS), "history": histories}

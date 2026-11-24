@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.rank finalize", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", default="v1")
+    parser.add_argument("--reviews", type=Path, help="overlay completed review rounds from this private review root")
     parser.add_argument("--community-weight", type=float, default=0.5,
                         help="weight of the upvote order, as a multiple of the median human weight")
     parser.add_argument("--stand-in", choices=("none", "upvote"), default="none",
@@ -258,6 +259,9 @@ def main(argv: list[str] | None = None) -> None:
         "upvote_order_agrees_with_team_pairs": round(team_vs_ref[0] / team_vs_ref[1], 3) if team_vs_ref[1] else None,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
+    if args.reviews:
+        from .review.apply import apply_final_directory
+        apply_final_directory(out, args.reviews)
     print(f"{summary['samples']} samples: {dict(status)}")
     print("voter accuracy (weight): " + ", ".join(f"{v} {d['accuracy']} ({d['weight']})"
                                                   for v, d in summary["voters"].items()))

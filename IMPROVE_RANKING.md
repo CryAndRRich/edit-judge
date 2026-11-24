@@ -29,7 +29,19 @@ Step 4  update the labels, retrain, measure the flip rate
 
 All files of a round go to `work/review/round-NN/` (git-ignored, coordinator only). The original labels are never overwritten. Reviews are applied on top of them, so every round can be undone.
 
-Status of the tools: the commands below are planned and not written yet. Their names and outputs may still change.
+The review tools are implemented in `src/rank/review/` and `src/scorer/oof.py`; see
+[REVIEW_WORKFLOW.md](REVIEW_WORKFLOW.md) and `notebooks/ranking_review.ipynb` for commands and storage.
+
+Round 1 completed on 2026-11-24: 25 OOF heads, 29,584 pairs and 250 selected samples. Nguyễn Đức Minh
+approved the group proposals and confirmed checking the review handoff. Applying 247 rankings updated
+736 pairs (344 direction flips, 57 neutral pairs); 3 skipped samples retain their original labels.
+The approval path records one approver and does not supply independent reviewer agreement.
+
+On the same original test labels, r0/r1 accuracy is 56.72%/56.65%; on the same reviewed labels it is
+57.04%/56.88%. Paired confidence intervals contain zero, so improvement is not established.
+Control/conflict direction flip rates are 41.35%/57.97%; the stopping criteria are not met.
+Labels, models, reports and approval records are checkpointed in the private HF dataset
+`IntroDS/RankingResults`. Extended reward baselines and coordinator replacement flags were not used.
 
 ## Step 1. Score every pair (coordinator)
 
@@ -62,7 +74,7 @@ Status of the tools: the commands below are planned and not written yet. Their n
   - EditReward only on the edits of the top 1,000 candidates from Step 2, a shortlist of about 3,600 edits and about 5 h on 2 T4.
 - Both are Kaggle runs and need approval first.
 
-**Command (planned):** `python -m src.scorer oof --round NN` writes `oof_pairs.jsonl`. Each line holds a pair with its label `p`, `P_model`, `spread`, and every baseline that voted.
+**Command:** `python -m src.scorer oof --round NN` writes `oof_pairs.jsonl`. Each line holds a pair with its label `p`, `P_model`, `spread`, and every baseline that voted.
 
 ## Step 2. Select the samples to review (coordinator)
 
@@ -93,14 +105,14 @@ Each pair gets three signals. The label says "a better" when `p >= 0.5`, and `p_
 - **No repeats.** A sample reviewed in an earlier round is not picked again, unless the scorer still disagrees strongly with the reviewed label (conflict above 0.8).
 - **Not reviewed:** samples that a member skipped, or that the filters removed.
 
-**Command (planned):** `python -m src.rank review-select --round NN --size 250` writes `selected.jsonl` (sample, bucket, signals) and `selection.md` (counts per bucket and split).
+**Command:** `python -m src.rank review-select --round NN --size 250` writes `selected.jsonl` (sample, bucket, signals) and `selection.md` (counts per bucket and split).
 
 ## Step 3. Rank again (reviewers)
 
 ### Setup
 
 **Chunks:**
-- The coordinator makes review chunks of about 25 samples: `python -m src.rank review-chunks --round NN` (planned).
+- The coordinator makes review chunks of about 25 samples: `python -m src.rank review-chunks --round NN --reviewers <comma-separated-roster>`.
 - Every sample goes to **two reviewers**.
 - At least one of the two must not be among the sample's original annotators.
 
@@ -149,12 +161,12 @@ The two reviews of a sample are compared:
 
 The decided order replaces the sample's earlier ranking.
 
-**Command (planned):** `python -m src.rank review-merge --round NN` writes `reviews.jsonl` and `disagreements.md` (the list for the meeting).
+**Command:** `python -m src.rank review-merge --round NN --results <returned-results-folder>` writes `reviews.jsonl` and `disagreements.md` (the list for the meeting).
 
 ## Step 4. Update, retrain, measure (coordinator)
 
 **1. Apply the reviews.**
-- `finalize` reads every `work/review/round-*/decisions.jsonl` and uses the decided order for those samples (planned option `--reviews`).
+- `finalize --reviews <review-root>` reads completed `round-*/decisions.jsonl` and uses the decided order for those samples. On Kaggle, `review-apply --round NN` instead writes a versioned `pairs.jsonl` without moving images or needing the original work tree.
 - `export` writes a new `data/pairs.jsonl`.
 - Each round gets a dataset version: `labels-r0` (original), `labels-r1`, ...
 - Every changed pair is logged in `work/review/round-NN/changes.jsonl` with the old order, the new order, the reviewers and the reason.

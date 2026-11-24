@@ -13,6 +13,7 @@ apps/ranking/.venv/
 
 # Notebook state and model outputs (outputs belong in data/ or Kaggle, never in git)
 .ipynb_checkpoints/
+benchmarks/nsfw/TEST.ipynb
 out/
 
 # Python

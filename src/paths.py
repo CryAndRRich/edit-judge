@@ -24,7 +24,7 @@ WORK_DIR = Path(os.environ.get("EJ_WORK_DIR") or REPO_ROOT / "work")
 OUTPUT_DIR = Path(os.environ.get("EJ_OUTPUT_DIR") or WORK_DIR)
 
 # Stage 1: dataset and ranking
-FINAL_PAIRS = DATA_DIR / "pairs.jsonl"        # the final dataset: one line per pair of edits
+FINAL_PAIRS = Path(os.environ.get("EJ_PAIRS_FILE") or DATA_DIR / "pairs.jsonl")  # optional versioned labels
 SAMPLES_DIR = DATA_DIR / "images"             # images of the ranked samples: <sample id>/<key>.jpg
 SAMPLES_JSONL = WORK_DIR / "samples.jsonl"    # every built sample (17,755): request, file names, editor notes
 UNRANKED_DIR = WORK_DIR / "unranked"          # samples without a final ranking (original.jpg, edits/<key>.jpg)
