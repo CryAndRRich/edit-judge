@@ -2,10 +2,12 @@
 
 Weights: GFPGANv1.4.pth of release v1.3.0 of gh:TencentARC/GFPGAN (348,632,874 bytes; no checksum is published, so
 the size is the only check). Code: the PyPI packages gfpgan 1.3.8, basicsr 1.4.2 and facexlib 0.3.0 (all from
-2022-2023, the latest releases), in their own environment. They are installed with --no-deps: their pins pull in
-tb-nightly (which overwrites Kaggle's tensorboard), lmdb and yapf, none needed for inference; facexlib needs only
-filterpy on top of Kaggle's packages. basicsr is an sdist whose setup_requires lists torch, so it is built without
-build isolation (otherwise pip downloads a second torch into the build environment). basicsr imports
+2022-2023, the latest releases). gfpgan and facexlib are wheels, installed in their own environment with --no-deps:
+their pins pull in tb-nightly (which overwrites Kaggle's tensorboard), lmdb and yapf, none needed for inference;
+facexlib needs only filterpy on top of Kaggle's packages. basicsr is only an sdist, and building it failed on Kaggle
+(preflight of 2026-11-24, metadata generation), so it is not installed: its sdist (pure Python; it contains the
+generated version.py; sha256 checked) is unpacked into EJ_MODELS_DIR and put on the path. Its import-time
+dependencies (cv2, scipy, yaml, distutils through setuptools) are on Kaggle. basicsr imports
 torchvision.transforms.functional_tensor, removed in torchvision 0.17: the name is pointed at
 torchvision.transforms.functional (same rgb_to_grayscale) before the import.
 
@@ -35,6 +37,9 @@ FACE_URLS = {"detection_Resnet50_Final.pth":
              "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
              "parsing_parsenet.pth":
              "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth"}
+BASICSR_URL = "https://files.pythonhosted.org/packages/source/b/basicsr/basicsr-1.4.2.tar.gz"
+BASICSR_SHA256 = "b89b595a87ef964cda9913b4d99380ddb6554c965577c0c10cb7b78e31301e87"
+BASICSR_BYTES = 172524
 UPSCALE = 1
 WEIGHT = 0.5
 
@@ -49,15 +54,33 @@ def patch_torchvision() -> None:
         sys.modules["torchvision.transforms.functional_tensor"] = functional
 
 
+def basicsr_code():
+    """The basicsr 1.4.2 sdist unpacked once into EJ_MODELS_DIR; returns the folder to put on the path."""
+    import hashlib
+    import tarfile
+
+    from ...paths import MODELS_DIR
+    folder = MODELS_DIR / "basicsr-1.4.2"
+    if not (folder / "basicsr" / "version.py").exists():
+        archive = release_file(BASICSR_URL, MODELS_DIR, BASICSR_BYTES)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if digest != BASICSR_SHA256:
+            archive.unlink()
+            raise RuntimeError(f"{archive}: sha256 {digest}, expected {BASICSR_SHA256}")
+        with tarfile.open(archive) as tar:
+            tar.extractall(MODELS_DIR, filter="data")
+        archive.unlink()
+    return folder
+
+
 class GFPGAN(Editor):
     name = "gfpgan"
-    local_dirs = ("gfpgan",)
+    local_dirs = ("gfpgan", "basicsr-1.4.2")
     download_gb = 0.55
     model_id = URL
     tasks = ("restore",)
     uses_mask = False
     install = ("--no-deps gfpgan==1.3.8 facexlib==0.3.0",
-               "--no-deps --no-build-isolation basicsr==1.4.2",
                "filterpy==1.4.5")
     settings = {"weights": "GFPGANv1.4.pth (release v1.3.0)", "arch": "clean", "channel_multiplier": 2,
                 "upscale": UPSCALE, "bg_upsampler": None, "weight": WEIGHT, "detector": "retinaface_resnet50",
@@ -66,6 +89,7 @@ class GFPGAN(Editor):
     def fetch(self) -> None:
         from ...paths import MODELS_DIR
         download(URL, SIZE_BYTES)
+        basicsr_code()
         for file_name, size in FACE_MODELS.items():     # where facexlib looks for them (load())
             release_file(FACE_URLS[file_name], MODELS_DIR / "gfpgan" / "weights", size)
 
@@ -75,6 +99,7 @@ class GFPGAN(Editor):
         import torch
 
         from ...paths import MODELS_DIR
+        sys.path.insert(0, str(basicsr_code()))
         patch_torchvision()
         from gfpgan import GFPGANer
 
