@@ -4,6 +4,9 @@
     python -m src.rank merge [--version v1]             check results, agreement (merge.py)
     python -m src.rank finalize [--version v1]          final rankings (finalize.py)
     python -m src.rank export [--dry-run]               data/pairs.jsonl and data/images/ (export.py)
+    python -m src.rank review-prepare | review-select | review-chunks | review-merge | review-apply | review-report
+                                                      versioned review loop (review/)
+    python -m src.rank review-approve                  record approval of a group proposal
 
 Run a command with --help for its options.
 """
@@ -18,7 +21,10 @@ def main(argv: list[str] | None = None) -> None:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return
-    if argv[0] == "merge":
+    if argv[0].startswith("review-"):
+        from .review.cli import main as review_main
+        review_main(argv)
+    elif argv[0] == "merge":
         merge.main(argv[1:])
     elif argv[0] == "finalize":
         finalize.main(argv[1:])

@@ -597,6 +597,15 @@ Outputs in `work/editors/`: `samples/`, `plans/`, `masks/`, `<model>/` (`<sample
 downloads the next ones (`python -m src.editors fetch`, sizes and folders from `python -m src.editors info`); each
 model's downloads are deleted after its last run.
 
+## Improving ranking labels (T-045)
+
+The review loop is implemented in `src/rank/review/` and `src/scorer/oof.py`. Start with
+[REVIEW_WORKFLOW.md](REVIEW_WORKFLOW.md). The self-contained [Kaggle notebook](notebooks/ranking_review.ipynb)
+imports the original HF result ZIPs and runs the automated stages on Kaggle without downloading the images
+to an annotator's laptop. Revised labels require independent reviews and adjudication, or explicit approval
+of a group proposal recorded with `review-approve`.
+`EJ_PAIRS_FILE` switches between frozen label versions while the images stay in `EJ_DATA_DIR/images`.
+
 ## Data rules
 
 - Respect robots.txt and each site's terms, and rate-limit every request. Never bypass a block.

@@ -5,6 +5,7 @@
                                                       cache embeddings (GPU; Kaggle); --gpus runs one process per GPU
     python -m src.scorer baselines                    similarity baselines (from embeddings), human ceiling
     python -m src.scorer train [--run NAME ...]       heads of configs/scorer.toml, every seed
+    python -m src.scorer oof --round N               five-fold predictions for label review (resumable)
     python -m src.scorer latency [--run NAME ...] [--pairs N]
                                                       time one request (2 edits of a pair) per trained run and
                                                       similarity baseline (GPU)
@@ -40,7 +41,8 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.scorer", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["list", "embed", "baselines", "train", "latency", "report", "reward",
-                                                      "rewards"])
+                                                      "rewards", "oof"])
+    parser.add_argument("--round", type=int, help="oof: review round 1..5")
     parser.add_argument("--backbones", help="embed: comma-separated backbones (default: all)")
     parser.add_argument("--gpus", type=int, help="embed: one process per GPU (default: run here)")
     parser.add_argument("--model", help="reward: the reward model")
@@ -56,6 +58,7 @@ def main(argv: list[str] | None = None) -> None:
                         help="embed, latency, reward: allow a large run without a GPU")
     parser.add_argument("--workers", type=int, help="embed: DataLoader workers (default 4 on a GPU, else 0)")
     parser.add_argument("--run", action="append", help="train, latency: only these runs")
+    parser.add_argument("--output-name", help="train: save one configured run under a new name (preserve the baseline)")
     parser.add_argument("--pairs", type=int, help="latency: requests timed (default 50)")
     parser.add_argument("--config", default="configs/scorer.toml")
     args = parser.parse_args(argv)
@@ -83,11 +86,22 @@ def main(argv: list[str] | None = None) -> None:
         result = {"human": report["human"],
                   "baselines": {name: {split: metrics[split]["accuracy"] for split in metrics}
                                 for name, metrics in report["baselines"].items()}}
+    elif args.command == "oof":
+        if args.round is None:
+            parser.error("oof requires --round")
+        from .oof import run
+        result = run(args.round, args.config, args.device, args.allow_cpu, args.max_hours)
     elif args.command == "train":
         from .train import train_run
         runs = [run for run in cfg.get("runs", []) if not args.run or run["name"] in args.run]
         if args.run and len(runs) != len(set(args.run)):
             parser.error(f"unknown run in {args.run}; configured: {[run['name'] for run in cfg.get('runs', [])]}")
+        if args.output_name:
+            from ..rank.review.common import safe_key
+            safe_key(args.output_name)
+            if len(runs) != 1:
+                parser.error("--output-name requires exactly one selected --run")
+            runs = [{**runs[0], "name": args.output_name}]
         result = []
         for run in runs:
             result.append(train_run(run, cfg.get("train"), version, args.device))

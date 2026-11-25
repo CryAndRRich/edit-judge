@@ -96,7 +96,7 @@ def score_batch(model: RewardModel, batch: list) -> tuple[list[dict], int]:
 def edit_items(split: str = "test", text_kind: str = "instruction") -> list[EditItem]:
     """Every edit with a preference pair in `split`, in the fixed run order."""
     keys = {}
-    for pair in load_pairs("all", split):
+    for pair in load_pairs("all", None if split == "all" else split):
         keys.setdefault(pair["id"], set()).update((pair["a"], pair["b"]))
     samples = {sample["id"]: sample for sample in iter_samples() if sample["id"] in keys}
     items = []

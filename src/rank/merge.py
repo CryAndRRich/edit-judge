@@ -72,7 +72,7 @@ def prefers(ranking: list[str], a: str, b: str) -> str:
     return a if ranking.index(a) < ranking.index(b) else b
 
 
-def alpha_nominal(units: list[list[str]]) -> float:
+def alpha_nominal(units: list[list[str]]) -> float | None:
     """Krippendorff's alpha for nominal values; each unit is the list of values given by its coders."""
     o = Counter()
     for vals in units:
@@ -85,9 +85,11 @@ def alpha_nominal(units: list[list[str]]) -> float:
     for (c, _), v in o.items():
         n_c[c] += v
     n = sum(n_c.values())
+    if n < 2:
+        return None
     d_o = sum(v for (c, k), v in o.items() if c != k) / n
     d_e = sum(n_c[c] * n_c[k] for c in n_c for k in n_c if c != k) / (n * (n - 1))
-    return 1 - d_o / d_e
+    return 1 - d_o / d_e if d_e else None
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -168,6 +170,7 @@ def main(argv: list[str] | None = None) -> None:
             "rank1_is_first_edit": round(top1[a][0] / top1[a][1], 3),
             "rank1_is_first_edit_by_chance": round(chance_top1[a] / top1[a][1], 3),
         }
+    alpha = alpha_nominal(units)
     summary = {
         "version": args.version,
         "samples": len(chunk_of),
@@ -176,7 +179,7 @@ def main(argv: list[str] | None = None) -> None:
         "pairs_labelled": n_labelled,
         "label_confidence": dict(conf),
         "pairwise_agreement": round(agree_all, 3),
-        "krippendorff_alpha_pairs": round(alpha_nominal(units), 3),
+        "krippendorff_alpha_pairs": round(alpha, 3) if alpha is not None else None,
         "same_best_edit_all_three": round(all_top1_same / three_ranked, 3) if three_ranked else None,
         "annotators": per_slot,
         "annotator_pair_agreement": {f"{a}-{b}": round(v[0] / v[1], 3) for (a, b), v in sorted(pair_votes.items())},

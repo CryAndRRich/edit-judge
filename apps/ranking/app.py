@@ -554,6 +554,8 @@ def start(annotator: str, chunk: str):
     if chunk not in chunks:
         raise gr.Error("Choose a chunk. Put the chunk .zip files in the chunks/ folder and press Refresh.")
     meta = json.loads((chunks[chunk] / "chunk.json").read_text(encoding="utf-8"))
+    if meta.get("review") and " ".join(annotator.split()).casefold() != meta["reviewer"]:
+        raise gr.Error(f"This chunk is assigned to {meta['reviewer']}. Enter that reviewer name.")
     sess = {"chunk": chunk, "dir": str(chunks[chunk]), "version": meta["version"], "annotator": annotator,
             "samples": meta["samples"], "records": read_records(result_path(chunk, annotator)), "order": []}
     first = next_unfinished(sess, -1)
