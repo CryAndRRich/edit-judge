@@ -3,7 +3,7 @@
 `src/rank/review/` implements selection, review, versioned labels and round reports.
 `src/scorer/oof.py` generates out-of-fold predictions. The self-contained
 `notebooks/ranking_review.ipynb` runs the pipeline on Kaggle; regenerate its source bundle with
-`python scripts/build_review_notebook.py` after source changes. The default `prepare` phase imports
+`python notebooks/build_ranking_review.py` after source changes. The default `prepare` phase imports
 small result ZIPs without downloading images or model weights.
 
 ## Round 1 results

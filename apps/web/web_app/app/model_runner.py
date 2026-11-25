@@ -25,13 +25,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
-from .catalog import MODELS_BY_ID, REPO_ROOT
+from .catalog import MODELS_BY_ID, WEB_DIR
 from .router import Route
 
 log = logging.getLogger("web_app.models")
 
 WORK_MAX_SIDE = 1024                      # mocks work at most at this size
-CACHE_DIR = Path(os.environ.get("EJ_WEB_CACHE") or REPO_ROOT / "web_app" / ".cache")
+CACHE_DIR = Path(os.environ.get("EJ_WEB_CACHE") or WEB_DIR / "web_app" / ".cache")
 ESRGAN_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
 ESRGAN_MAX_SIDE = int(os.environ.get("EJ_WEB_ESRGAN_MAX_SIDE", "512"))   # x4 output: 2048 px at most
 REAL_MODELS_ENABLED = os.environ.get("EJ_WEB_REAL_MODELS", "1") != "0"

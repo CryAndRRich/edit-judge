@@ -32,7 +32,7 @@ class Detector:
     name: str = ""          # short unique name; also the name of the score file
     model_id: str = ""      # where the weights come from (Hugging Face ID and revision, URL, package version)
     batch_size: int = 16
-    install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each, beyond requirements-ml.txt;
+    install: tuple[str, ...] = ()   # extra pip arguments, one `pip install` each, beyond requirements/ml.txt;
                                     # same `install`, same environment (src/common/envs.py)
     isolated: bool = False          # True: an environment that does not see the machine's packages at all, for
                                     # libraries that bring their own torch (the machine's torchaudio, torchvision

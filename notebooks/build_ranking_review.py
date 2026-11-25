@@ -22,7 +22,7 @@ def build():
     paths = sorted((ROOT / "src").rglob("*.py"))
     paths += sorted((ROOT / "configs").glob("*.toml"))
     paths += [ROOT / "apps/ranking" / name for name in ("app.py", "requirements.txt", "run_mac.command", "run_windows.bat")]
-    paths += [ROOT / name for name in ("LICENSE", "README.md", "IMPROVE_RANKING.md", "REVIEW_WORKFLOW.md", "requirements.txt")]
+    paths += [ROOT / name for name in ("LICENSE", "README.md", "IMPROVE_RANKING.md", "REVIEW_WORKFLOW.md", "requirements/base.txt")]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in paths:

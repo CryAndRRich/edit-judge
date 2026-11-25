@@ -35,15 +35,20 @@ src/                        Python package (run as `python -m src.<module>`)
   editors/                  editing models (MODEL_LIST.md): sample sets, VLM edit plans, grounding masks, one
                             wrapper per model in models/, runner, scores and report
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
+apps/web/                   Edit-Judge Studio, the assistant's web app (FastAPI); its own README.md
 configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
-notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*
+notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*, editors_run,
+                            ranking_review (built by build_ranking_review.py)
 data/                       local only, git-ignored: the final dataset (images/, pairs.jsonl); see "Data"
 work/                       local only, git-ignored: everything used to build data/, and stage outputs
-requirements.txt            dependencies of stage 1
-requirements-ml.txt         model libraries for the later stages
-requirements-filters.txt    extra packages of the image filter detectors (installed one model at a time on Kaggle)
-requirements-scorer.txt     extra packages of the scorer's reward-model baselines (one environment per model)
-requirements-editors.txt    extra packages of the editing models
+requirements/               dependencies, one file per use (each includes the ones it builds on with -r):
+  base.txt                  stage 1 (crawl, dataset, ranking): the laptop
+  ml.txt                    model libraries for the later stages (base.txt +)
+  filters.txt               extra packages of the image filter detectors (installed one model at a time on Kaggle)
+  scorer.txt                extra packages of the scorer's reward-model baselines (one environment per model)
+  editors.txt               extra packages of the editing models (ml.txt +)
+  web.txt                   the web app alone (mock models), e.g. on a laptop
+  server.txt                the GPU server of the live demo: editors.txt + web.txt (see "GPU server")
 .env.example                settings and secrets; copy to .env (git-ignored)
 ```
 
@@ -56,13 +61,13 @@ Python 3.10 or newer.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements/base.txt
 cp .env.example .env        # then fill in what you need; never commit .env
 ```
 
 All commands run from the repository root, e.g. `.venv/bin/python -m src.rank --help`.
 
-Model libraries (`requirements-ml.txt`) are for Kaggle, where most of them are preinstalled. Locally they are only
+Model libraries (`requirements/ml.txt`) are for Kaggle, where most of them are preinstalled. Locally they are only
 for small smoke tests; on an Intel Mac use Python 3.11 with `torch==2.2.2`, `torchvision==0.17.2`, `numpy<2` and
 `transformers<5` (newer versions have no wheels there).
 
@@ -394,7 +399,7 @@ votes of every subset), then `filters_apply.ipynb` (the chosen models on the dat
 
 - **A detector** subclasses `Detector` (`src/filters/base.py`): `load(device)` and `score(images)`, returning the
   probability that each image is positive. Model libraries are imported inside `load`, and packages beyond
-  `requirements-ml.txt` are listed in `install` and recorded in `requirements-filters.txt` (they conflict, so the
+  `requirements/ml.txt` are listed in `install` and recorded in `requirements/filters.txt` (they conflict, so the
   notebook installs them right before the model runs, each model in its own process). Put it in its own file in `nsfw/` or `watermark/` and register it in that folder's
   `__init__.py` (`DETECTORS`). Watermark checkpoints are pinned Hugging Face revisions, loaded with
   `torch.load(weights_only=True)` and, for pickled whole models, an explicit list of allowed classes.
@@ -540,7 +545,7 @@ The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `flux2-
 every task, with the instruction as their prompt (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on
 2026-11-24 as too slow for live editing: `MODEL_LIST.md`, "Left out"). The inpainting models need a
 mask for every sample; the mask-free ones get the instruction instead. Models whose code pins other packages get
-their own environment (`install`, `src/common/envs.py`; the pins are recorded in `requirements-editors.txt`);
+their own environment (`install`, `src/common/envs.py`; the pins are recorded in `requirements/editors.txt`);
 models that ship code but no package are downloaded at a pinned commit into `EJ_MODELS_DIR`.
 
 ```bash
@@ -605,6 +610,31 @@ imports the original HF result ZIPs and runs the automated stages on Kaggle with
 to an annotator's laptop. Revised labels require independent reviews and adjudication, or explicit approval
 of a group proposal recorded with `review-approve`.
 `EJ_PAIRS_FILE` switches between frozen label versions while the images stay in `EJ_DATA_DIR/images`.
+
+## Web app and GPU server
+
+`apps/web/` is the assistant's web app (Edit-Judge Studio): it routes an instruction to the candidate models, runs
+them, scores the edits and shows the best one. Its own [README](apps/web/README.md) says how to run it on a
+laptop, where most models are still mocks. Wiring it to `src/editors` and the mlp-siglip scorer is the next step.
+
+### GPU server
+
+One machine with a GPU that clones this repository, installs it, downloads every model ahead of time and serves
+the live demo. It needs one requirements file, `requirements/server.txt`; the others are records of the Kaggle
+stages. The four editors that pin their own packages (`install`: realesrgan, vosr, gfpgan, flux2-klein-4b) get a
+small environment on top of the main one (`src/common/envs.py`, the same as on Kaggle), built by `setup`:
+
+```bash
+git clone https://github.com/CryAndRRich/edit-judge.git && cd edit-judge
+python3 -m venv .venv && .venv/bin/pip install -r requirements/server.txt
+export EJ_MODELS_DIR=/data/models EJ_ENVS_DIR=/data/envs   # a large disk: about 80 GB of weights
+.venv/bin/python -m src.editors setup                      # environments and downloads of every editor (no GPU)
+.venv/bin/python apps/web/run.py --host 0.0.0.0             # the web app
+```
+
+`setup --models a,b` prepares only some editors; it resumes, so a second run only checks what is there. The
+planner (Qwen2.5-VL-7B), Grounding DINO, SAM 2.1 and the scorer's SigLIP download into the Hugging Face cache on
+first use.
 
 ## Data rules
 

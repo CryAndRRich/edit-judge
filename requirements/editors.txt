@@ -1,7 +1,7 @@
-# Extra packages of the editing models (src/editors), beyond requirements-ml.txt. Kaggle only; this file is the
+# Extra packages of the editing models (src/editors), beyond requirements/ml.txt. Kaggle only; this file is the
 # record, the notebook (notebooks/editors_run.ipynb) installs the main environment's packages, and every model
 # whose `install` is set gets its own environment (src/common/envs.py) with the pins listed below.
--r requirements-ml.txt
+-r ml.txt
 transformers>=4.56,<5     # Sam2Model / Sam2Processor (SAM 2.1) need 4.56; Grounding DINO, Qwen2.5-VL
 diffusers>=0.35,<0.40     # AutoPipelineForInpainting: RORem, SDXL Inpainting 0.1; ObjectClear's pipeline.
                           # 0.40+ needs huggingface-hub >= 1.23, which transformers < 5 does not allow (< 1.0)

@@ -6,7 +6,7 @@ the Enhance benchmark (reports/enhance/stats.md). The winner is the candidate wi
 Backends (env EJ_WEB_SCORER = auto | editreward | imagereward | proxy):
 - editreward: the repository's EditReward wrapper (src/scorer/rewards/editreward.py, Qwen2.5-VL-7B, ICLR 2026),
   scoring (original, instruction, edit). It needs about 16 GB of GPU memory, so "auto" picks it only on CUDA with
-  enough memory and its package installed (requirements-scorer.txt);
+  enough memory and its package installed (requirements/scorer.txt);
 - imagereward: the repository's ImageReward wrapper (BLIP, NeurIPS 2023; it reads the edit and the text only). It
   runs on a laptop (about 2 GB of weights) once `transformers<5` and `timm` are installed;
 - proxy: a transparent heuristic on numpy, used when no reward model can run here. It is NOT EditReward: it

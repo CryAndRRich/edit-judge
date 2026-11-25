@@ -1,8 +1,8 @@
-# Extra packages of the scorer's reward-model baselines (src/scorer/rewards), beyond requirements-ml.txt. Kaggle
+# Extra packages of the scorer's reward-model baselines (src/scorer/rewards), beyond requirements/ml.txt. Kaggle
 # only. They pin conflicting versions, so they are not installed together: `python -m src.scorer rewards` builds
 # one environment per model (its `install` tuple, src/common/envs.py) right before the model runs. This file is the
-# record. The embeddings (src/scorer/embed.py) need only requirements-ml.txt (transformers, open_clip_torch).
--r requirements-ml.txt
+# record. The embeddings (src/scorer/embed.py) need only requirements/ml.txt (transformers, open_clip_torch).
+-r ml.txt
 # imagereward: THUDM/ImageReward at a pinned commit, downloaded as source at run time (its setup.py needs
 # pkg_resources); only its BLIP model modules are imported, which need transformers and timm
 timm

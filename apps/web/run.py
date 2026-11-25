@@ -1,8 +1,8 @@
-"""Starts the web app (web_app/) with Uvicorn on http://127.0.0.1:8000.
+"""Starts the web app (apps/web/web_app/) with Uvicorn on http://127.0.0.1:8000.
 
-Usage: python run_web.py [--host 127.0.0.1] [--port 8000] [--reload]
+Usage: python apps/web/run.py [--host 127.0.0.1] [--port 8000] [--reload]
 Settings (environment): EJ_WEB_SCORER=auto|editreward|imagereward|proxy, EJ_WEB_REAL_MODELS=0 (mock Real-ESRGAN
-too), EJ_WEB_ESRGAN_MAX_SIDE=512, EJ_WEB_KEEP_RUNS=40. Requirements: pip install -r requirements_web.txt
+too), EJ_WEB_ESRGAN_MAX_SIDE=512, EJ_WEB_KEEP_RUNS=40. Requirements: pip install -r requirements/web.txt
 """
 
 import argparse

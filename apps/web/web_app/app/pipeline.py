@@ -2,8 +2,8 @@
 background jobs with per-model progress.
 
 Storage (git-ignored, local only):
-- web_app/uploads/<image id>.jpg: uploaded photos, normalised (EXIF rotation applied, RGB, at most 2048 px);
-- web_app/outputs/<run id>/: original.jpg (the input at the working size), <model>.jpg|png, <model>.thumb.webp,
+- apps/web/web_app/uploads/<image id>.jpg: uploaded photos, normalised (EXIF rotation applied, RGB, at most 2048 px);
+- apps/web/web_app/outputs/<run id>/: original.jpg (the input at the working size), <model>.jpg|png, <model>.thumb.webp,
   result.json. Only the newest KEEP_RUNS runs are kept.
 """
 
@@ -21,17 +21,17 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from .catalog import MODELS_BY_ID, REPO_ROOT
+from .catalog import MODELS_BY_ID, WEB_DIR
 from .model_runner import WORK_MAX_SIDE, ModelRunner, limit_size
 from .router import ROUTER
 from .scorer import ImageScorer, rank_candidates
 
 log = logging.getLogger("web_app.pipeline")
 
-WEB_ROOT = REPO_ROOT / "web_app"
+WEB_ROOT = WEB_DIR / "web_app"
 UPLOAD_DIR = Path(os.environ.get("EJ_WEB_UPLOADS") or WEB_ROOT / "uploads")
 OUTPUT_DIR = Path(os.environ.get("EJ_WEB_OUTPUTS") or WEB_ROOT / "outputs")
-SAMPLES_DIR = REPO_ROOT / "dev_split"
+SAMPLES_DIR = WEB_DIR / "dev_split"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_UPLOAD_PIXELS = 60_000_000
 STORE_MAX_SIDE = 2048

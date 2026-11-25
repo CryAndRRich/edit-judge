@@ -162,7 +162,7 @@
   function renderSamples() {
     const box = $("#samples");
     if (!state.samples.length) {
-      box.innerHTML = '<div class="faint" style="grid-column:1/-1;font-size:12px">No samples — run <span class="mono">python scripts/fetch_dev_split.py</span></div>';
+      box.innerHTML = '<div class="faint" style="grid-column:1/-1;font-size:12px">No samples — run <span class="mono">python apps/web/fetch_dev_split.py</span></div>';
       return;
     }
     $("#samples-note").textContent = `${state.samples.length} public photos`;
@@ -662,7 +662,7 @@
       $("#pill-device").innerHTML = `<span class="dot ok"></span>Device <b>${esc(h.device.toUpperCase())}</b>`;
     } else {
       $("#pill-device").innerHTML = '<span class="dot bad"></span>Server <b>offline</b>';
-      toast("Server unreachable", "Start it with: python run_web.py");
+      toast("Server unreachable", "Start it with: python apps/web/run.py");
     }
     if (models.status === "fulfilled") {
       state.modelNames = Object.fromEntries(models.value.models.map((m) => [m.id, m.name]));

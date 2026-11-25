@@ -1,0 +1,8 @@
+# One GPU server that runs the live demo: the web app (apps/web/) and the editing models (src/editors), installed
+# into one environment with `pip install -r requirements/server.txt`. The other files of this folder are records of
+# the Kaggle stages (crawl, filters, scorer baselines) and are not needed on the server.
+# The few editors whose packages are pinned (realesrgan, vosr, gfpgan, flux2-klein-4b: their `install`) get a small
+# environment of their own on top of this one: `python -m src.editors setup` builds them and downloads every
+# model's code and weights (about 80 GB; set EJ_MODELS_DIR and EJ_ENVS_DIR to a large disk first).
+-r editors.txt
+-r web.txt

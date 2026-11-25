@@ -4,6 +4,8 @@ formatting or open_ended.
     python -m src.editors list                                   registered editors and their tasks
     python -m src.editors info                                   the same as JSON, with downloads and GPUs
     python -m src.editors fetch --model NAME                     download its code and weights only (no GPU)
+    python -m src.editors setup [--models a,b]                   a GPU server: every editor's environment
+                                                                 (src/common/envs.py) and downloads, no GPU
     python -m src.editors samples --task TASK [--size 30]        the dev samples of the task (laptop)
     python -m src.editors plan --task TASK [--limit N]           Qwen2.5-VL-7B: targets, box, prompt (GPU; Kaggle)
     python -m src.editors masks --task TASK [--limit N]          Grounding DINO + SAM 2.1 masks (GPU; Kaggle)
@@ -71,15 +73,42 @@ def run_all(tasks: list[str], models: list[str], limit: int | None = None, extra
     return codes
 
 
+def setup(models: list[str]) -> dict:
+    """Build the environment of each model (only those with an `install`) and download its code and weights, as the
+    notebook's prefetch does: everything a server needs before it loads the models. Needs no GPU."""
+    from ..common.envs import ensure_env
+
+    results = {}
+    for name in models:
+        editor = get_editor(name)
+        log_path = EDITORS_DIR / "logs" / f"env-{name}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"=== {name} ({editor.download_gb} GB)", flush=True)
+        try:
+            with open(log_path, "w") as log:
+                python = ensure_env(editor.install, log, editor.isolated)
+        except subprocess.CalledProcessError:
+            results[name] = f"environment failed; see {log_path}"
+            continue
+        try:
+            editor.fetch()
+        except Exception as error:       # a download error of one model must not stop the others
+            results[name] = f"fetch failed: {error!r}"
+            continue
+        results[name] = "ok" + ("" if python == sys.executable else f" (own environment {python})")
+    return results
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.editors", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["list", "info", "fetch", "samples", "plan", "masks", "run",
+    parser.add_argument("command", choices=["list", "info", "fetch", "setup", "samples", "plan", "masks", "run",
                                                 "runall", "score", "report", "summary"])
     parser.add_argument("--task", choices=TASKS)
     parser.add_argument("--tasks", help="run, runall: comma-separated tasks, one after another in one process")
     parser.add_argument("--model", help="run: the editor")
-    parser.add_argument("--models", help="runall: comma-separated editors (default: every editor of the task)")
+    parser.add_argument("--models", help="runall, setup: comma-separated editors (default: every editor of the "
+                                         "task; setup: every registered editor)")
     parser.add_argument("--size", type=int, default=30, help="samples: samples per task")
     parser.add_argument("--limit", type=int, help="plan, masks, run, runall: the first N samples only (smoke: 5)")
     parser.add_argument("--per-editor", type=int,
@@ -108,6 +137,12 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("fetch needs --model")
         get_editor(args.model).fetch()
         print(f"fetched {args.model}")
+        return
+    if args.command == "setup":
+        results = setup(args.models.split(",") if args.models else list(EDITORS))
+        print(json.dumps(results, indent=1))
+        if any(status != "ok" and not status.startswith("ok ") for status in results.values()):
+            sys.exit(1)
         return
     if args.command == "summary":
         from .report import overview

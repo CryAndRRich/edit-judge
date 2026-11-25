@@ -14,7 +14,10 @@ from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[4]      # edit-judge/
+WEB_DIR = Path(__file__).resolve().parents[2]        # edit-judge/apps/web/
+# Steven's Enhance benchmark report: removed from the repository on 2026-11-24 (its results are in MODEL_LIST.md and
+# the editors' runs replace it, work/editors/summary.md); without the file no benchmark numbers are shown
 ENHANCE_STATS = REPO_ROOT / "reports" / "enhance" / "stats.json"
 
 CATEGORIES: dict[str, dict] = {

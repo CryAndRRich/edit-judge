@@ -1,4 +1,4 @@
-"""Downloads a few real public photos into dev_split/ for smoke runs of the web app (web_app/) and its scorer.
+"""Downloads a few real public photos into apps/web/dev_split/ for smoke runs of the web app (apps/web/web_app/) and its scorer.
 
 No image is generated: every photo is a real photograph from a public source.
 - Lorem Picsum (https://picsum.photos): photos from Unsplash, under the Unsplash License; the author and the
@@ -9,7 +9,7 @@ Each sample also gets an instruction, so the pipeline can be run end to end. dev
 source, author, license and instruction of every photo. The photos themselves are git-ignored (re-download them
 with this script).
 
-Usage: python scripts/fetch_dev_split.py [--force]
+Usage: python apps/web/fetch_dev_split.py [--force]
 """
 
 import argparse
@@ -22,8 +22,7 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "dev_split"
+OUT = Path(__file__).resolve().parent / "dev_split"
 HEADERS = {"User-Agent": "edit-judge-dev-split/1.0"}
 MAX_SIDE = 1024
 

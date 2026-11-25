@@ -36,10 +36,10 @@ tests/
 kaggle.json
 runs.jsonl
 
-# Web app (web_app/): uploads, run outputs and downloaded weights stay local; dev_split photos are re-downloaded
-# with scripts/fetch_dev_split.py (only its manifest is committed)
-web_app/uploads/
-web_app/outputs/
-web_app/.cache/
-dev_split/*.jpg
-dev_split/*.png
+# Web app (apps/web/): uploads, run outputs and downloaded weights stay local; dev_split photos are re-downloaded
+# with apps/web/fetch_dev_split.py (only its manifest is committed)
+apps/web/web_app/uploads/
+apps/web/web_app/outputs/
+apps/web/web_app/.cache/
+apps/web/dev_split/*.jpg
+apps/web/dev_split/*.png

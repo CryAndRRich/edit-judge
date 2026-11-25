@@ -1,8 +1,8 @@
 # Web app: progress, architecture and how to run it
 
-**Edit-Judge Studio** (`web_app/`) is the web front of the editing benchmark. It reads an editing instruction
+**Edit-Judge Studio** (`apps/web/web_app/`) is the web front of the editing benchmark. It reads an editing instruction
 (English or Vietnamese), routes it to the candidate models of `MODEL_LIST.md`, runs them, scores every edit against
-the unedited photo, and shows the winner. The plan it implements is `web_app_development_plan.md`.
+the unedited photo, and shows the winner. The plan it implements is [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
 
 Status on 2026-11-23: all five phases of the plan are done, and all tests pass (see [Tests](#tests)).
 
@@ -27,20 +27,24 @@ Read this before trusting a number in the UI.
 
   It is a stand-in so the pipeline runs without a GPU. It must not be cited as a benchmark result.
 - The T4 numbers shown for VOSR 2.0, HVI-CIDNet, InstructIR and Real-ESRGAN are real. They come from the Kaggle
-  Enhance benchmark (`reports/enhance/stats.json`).
+  Enhance benchmark (`reports/enhance/stats.json`). That report was removed when the Enhance models moved
+  into `src/editors` (2026-11-24), so these numbers are not shown until the app reads `work/editors/` instead.
 
 ## How to run
 
+Commands run from the repository root. For a GPU server with the real models, see "GPU server" in the
+[main README](../../README.md#gpu-server).
+
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements_web.txt
-.venv/bin/python scripts/fetch_dev_split.py      # 5 public photos (Picsum/Unsplash, COCO) into dev_split/
-.venv/bin/python run_web.py                      # http://127.0.0.1:8000, API docs at /docs
+.venv/bin/pip install -r requirements/web.txt
+.venv/bin/python apps/web/fetch_dev_split.py    # 5 public photos (Picsum/Unsplash, COCO) into apps/web/dev_split/
+.venv/bin/python apps/web/run.py                # http://127.0.0.1:8000, API docs at /docs
 ```
 
-- `run_web.py --port 8010` uses another port, and `--reload` restarts the server when a backend file changes.
+- `apps/web/run.py --port 8010` uses another port, and `--reload` restarts the server when a backend file changes.
 - On the development machine, port 8000 was taken by another project, so the tests ran on 8010.
-- The Real-ESRGAN weights (64 MB) are downloaded on first use into `web_app/.cache/` (git-ignored).
+- The Real-ESRGAN weights (64 MB) are downloaded on first use into `apps/web/web_app/.cache/` (git-ignored).
 
 Settings (environment variables):
 
@@ -49,8 +53,8 @@ Settings (environment variables):
 | `EJ_WEB_SCORER` | `auto` | `auto` (EditReward on CUDA with 16 GB or more, else the proxy), `editreward`, `imagereward`, `proxy`. A backend that cannot load falls back to the proxy, and the reason is shown. |
 | `EJ_WEB_REAL_MODELS` | `1` | `0` replaces Real-ESRGAN with a Lanczos mock (no torch needed at run time) |
 | `EJ_WEB_ESRGAN_MAX_SIDE` | `512` | Real-ESRGAN input size; the output is 4 times larger |
-| `EJ_WEB_KEEP_RUNS` | `40` | Run folders kept in `web_app/outputs/` |
-| `EJ_WEB_UPLOADS`, `EJ_WEB_OUTPUTS`, `EJ_WEB_CACHE` | under `web_app/` | Storage folders |
+| `EJ_WEB_KEEP_RUNS` | `40` | Run folders kept in `apps/web/web_app/outputs/` |
+| `EJ_WEB_UPLOADS`, `EJ_WEB_OUTPUTS`, `EJ_WEB_CACHE` | under `apps/web/web_app/` | Storage folders |
 
 ImageReward on a laptop needs `pip install "transformers>=4.56,<5" timm`. On first use it downloads about 1.8 GB.
 
@@ -58,15 +62,15 @@ ImageReward on a laptop needs `pip install "transformers>=4.56,<5" timm`. On fir
 
 ```
 browser (templates/index.html, static/js/app.js, static/css/app.css: vanilla JS + CSS, no build step)
-   │  POST /api/upload · POST /api/route (live preview) · POST /api/jobs → poll GET /api/jobs/{id}
-   ▼
+   |  POST /api/upload , POST /api/route (live preview) , POST /api/jobs -> poll GET /api/jobs/{id}
+   v
 web_app/app/main.py         FastAPI: CORS, static + media mounts, Jinja2, JSON error handlers, scorer warm-up
-web_app/app/pipeline.py     upload validation and storage · route → run → save → score → rank · jobs
-   ├── router.py            TaskRouter: instruction → intents → categories → model IDs (EN + VI, accents optional)
-   ├── catalog.py           the 23 candidates (MODEL_LIST.md) and the T4 benchmark of the Enhance models
-   ├── model_runner.py      EditingModel interface · Real-ESRGAN (spandrel) · PIL · 21 mocks · thread pool
-   ├── scorer.py            ImageScorer: EditReward / ImageReward (src/scorer/rewards) or the proxy · rank
-   └── schemas.py           Pydantic request and response models (OpenAPI at /docs)
+web_app/app/pipeline.py     upload validation and storage , route -> run -> save -> score -> rank , jobs
+   |-- router.py            TaskRouter: instruction -> intents -> categories -> model IDs (EN + VI, accents optional)
+   |-- catalog.py           the 23 candidates (MODEL_LIST.md) and the T4 benchmark of the Enhance models
+   |-- model_runner.py      EditingModel interface , Real-ESRGAN (spandrel) , PIL , 21 mocks , thread pool
+   |-- scorer.py            ImageScorer: EditReward / ImageReward (src/scorer/rewards) or the proxy , rank
+   `-- schemas.py           Pydantic request and response models (OpenAPI at /docs)
 ```
 
 ### One request, step by step
@@ -86,7 +90,7 @@ web_app/app/pipeline.py     upload validation and storage · route → run → s
 4. The outputs are saved:
    - JPEG, or PNG for cut-outs with transparency;
    - a WebP thumbnail of each.
-5. `ImageScorer.score_candidates` scores the unedited photo and every edit. **gain = score(edit) − score(original)**,
+5. `ImageScorer.score_candidates` scores the unedited photo and every edit. **gain = score(edit) - score(original)**,
    the "do nothing" baseline of the benchmark. `rank_candidates` sorts by gain; ties go to the faster model.
 6. The response lists, best first, every candidate with:
    - gain, raw score and baseline;
@@ -111,13 +115,13 @@ Nothing else changes: routing, scoring, the API and the UI pick it up.
 | GET | `/api/health` | status, device, model count, scorer backend and fallback reason |
 | GET | `/api/models` | 7 categories and 23 models: backend, date, VRAM estimate, T4 benchmark |
 | GET | `/api/samples` | dev_split photos, with instruction, source, author and licence |
-| POST | `/api/route` | `{instruction}` → `{primary, intents, categories, params, models}` |
-| POST | `/api/upload` | multipart `file`; see the upload rules below → `{image_id, url, width, height, filename, bytes}` |
-| POST | `/api/process` | `{image_id` or `sample_id, instruction, models?}` → `ProcessResponse` (synchronous) |
-| POST | `/api/jobs` | the same body → `202 {job_id, models}` |
+| POST | `/api/route` | `{instruction}` -> `{primary, intents, categories, params, models}` |
+| POST | `/api/upload` | multipart `file`; see the upload rules below -> `{image_id, url, width, height, filename, bytes}` |
+| POST | `/api/process` | `{image_id` or `sample_id, instruction, models?}` -> `ProcessResponse` (synchronous) |
+| POST | `/api/jobs` | the same body -> `202 {job_id, models}` |
 | GET | `/api/jobs/{job_id}` | `{status: queued/running/scoring/done/error, progress: {model: state}, done, total, result}` |
-| GET | `/api/runs/{run_id}` | a finished run (`web_app/outputs/<run_id>/result.json`) |
-| GET | `/media/uploads/…`, `/media/outputs/…`, `/media/samples/…` | images |
+| GET | `/api/runs/{run_id}` | a finished run (`apps/web/web_app/outputs/<run_id>/result.json`) |
+| GET | `/media/uploads/...`, `/media/outputs/...`, `/media/samples/...` | images |
 
 Upload rules for `POST /api/upload`:
 - formats: JPEG, PNG, WebP, BMP, TIFF and GIF, up to 25 MB and 60 MP;
@@ -142,7 +146,7 @@ The shared list always runs. The specialists are added when one of their categor
 |---|---|---|
 | 1 Shared | always | FLUX 3 Image Klein, VAREdit 2B, FLUX.2 [klein] 4B, VIBE, OmniGen2, RealEdit, MagicBrush, InstructPix2Pix |
 | 2 Remove | remove / erase / delete / watermark; xóa, loại bỏ, tẩy | ObjectClear, RORem, LaMa |
-| 3 Add / Replace | add, put, replace, swap, turn X into, change the background; thêm, chèn, thay, đổi … thành | SDXL Inpainting 0.1 |
+| 3 Add / Replace | add, put, replace, swap, turn X into, change the background; thêm, chèn, thay, đổi ... thành | SDXL Inpainting 0.1 |
 | 4 Enhance | brighter, sharpen, denoise, deblur, vivid, contrast, upscale; làm sáng, làm nét, khử nhiễu, độ phân giải | VOSR 2.0, HVI-CIDNet (lighting only), InstructIR, Real-ESRGAN |
 | 5 Restore | restore, old photo, scratches, faded, face; phục hồi, ảnh cũ, phai màu, khuôn mặt | VOSR 2.0, InstantIR, CodeFormer and GFPGAN (faces / old photos) |
 | 6 Change-Color | make the car red, bluer, colourise, black and white; đổi màu, tô màu, đen trắng | SDXL Inpainting (one region), DDColor (colourise only), PIL (greyscale) |
@@ -197,7 +201,7 @@ node tests/ui_smoke.mjs http://127.0.0.1:8000 /tmp/ej-ui
 
 `tests/` is git-ignored in this repository (see `.gitignore`), so these files live on the coordinator's computer only.
 
-## Iteration log (build → test → inspect → fix)
+## Iteration log (build -> test -> inspect -> fix)
 
 | # | Found by | Problem | Fix |
 |---|---|---|---|
@@ -209,7 +213,7 @@ node tests/ui_smoke.mjs http://127.0.0.1:8000 /tmp/ej-ui
 | 6 | scorer calibration | black and white scored 0: the "unchanged" check compared greyscale thumbnails | compare in colour |
 | 7 | scorer calibration | cut-outs and "brighter" were penalised for the change they were asked to make | skip the quality terms a request targets; fidelity measured on the subject (alpha or non-background) |
 | 8 | scorer calibration | crop and extend checks counted pixels, so they were wrong for models that work at 512 px | scale-invariant checks (match against a centre crop of the original) |
-| 9 | E2E timings | Real-ESRGAN took 35-50 s per request after the first one: MPS kept about 3 GB cached on an 8 GB Mac, so the next runs swapped | `torch.mps.empty_cache()` after each run: 3.6-4.6 s, test suite 168 s → 42 s |
+| 9 | E2E timings | Real-ESRGAN took 35-50 s per request after the first one: MPS kept about 3 GB cached on an 8 GB Mac, so the next runs swapped | `torch.mps.empty_cache()` after each run: 3.6-4.6 s, test suite 168 s -> 42 s |
 | 10 | headless screenshots | thumbnails of cut-outs had no checkerboard (CSS specificity); the hero image was not centred; `?run=` left the controls empty | CSS fixes; the run's photo and instruction are restored |
 | 11 | phone screenshot | the header wrapped onto 4 lines | compact header below 640 px |
 | 12 | UX review | while models ran, the results column showed the welcome screen | live panel with per-model skeleton cards |
@@ -217,7 +221,7 @@ node tests/ui_smoke.mjs http://127.0.0.1:8000 /tmp/ej-ui
 
 ## Known limits and next steps
 
-- **Wire in the real models** on a GPU machine (Kaggle 2 × T4 or similar), in this order:
+- **Wire in the real models** on a GPU machine (Kaggle 2 x T4 or similar), in this order:
   - the cheap ones first: HVI-CIDNet, InstructIR, LaMa, BEN2, BiRefNet, DDColor;
   - then the diffusion editors.
 
