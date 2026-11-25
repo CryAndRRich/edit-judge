@@ -12,14 +12,12 @@ opencv-python-headless    # imported by ObjectClear's code (downloaded at a pinn
 # lama: big-lama.pt (TorchScript) from simple-lama-inpainting release v0.1.0, loaded with torch.jit; no package
 # migan: migan_traced.pt (TorchScript) from Sanster/models release "migan", loaded with torch.jit; no package
 # Repository code downloaded at a pinned commit (no package): objectclear, osor, hvi-cidnet, instructir, vosr,
-# instantir, codeformer, ddcolor, varedit-2b, omnigen2. Remote code pinned by HF revision: ben2, birefnet.
+# codeformer, ddcolor, varedit-2b. Remote code pinned by HF revision: ben2, birefnet.
 #
 # Own environments (the editor's `install`, on top of the machine's packages):
 # realesrgan:      spandrel==0.4.2
 # vosr:            fairscale==0.4.13
 # gfpgan:          --no-deps gfpgan==1.3.8 facexlib==0.3.0; basicsr 1.4.2 sdist on the path (not built);
 #                  filterpy==1.4.5
-# vibe:            diffusers==0.33.1 transformers==4.57.1 loguru==0.7.3; --no-deps VIBE at commit 7f0f01f
 # flux2-klein-4b:  diffusers==0.37.1 (the first release with Flux2KleinPipeline is 0.37.0)
-# flux3-klein:     diffusers==0.43.0 transformers==5.8.1 (FLUX.3 blocks: diffusers >= 0.42, Qwen3.5 >= 5.2)
-# omnigen2:        einops
+# (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on 2026-11-24: MODEL_LIST.md "Left out")

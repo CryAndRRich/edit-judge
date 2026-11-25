@@ -21,20 +21,16 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 
 | Model | Date | Tasks (list numbers) |
 |---|---|---|
-| FLUX 3 Image Klein | 10/2026 | 1 Shared |
 | VAREdit 2B | ICLR 2026 | 1 Shared |
 | OSOR-SDXL-Inpainting | ECCV 2026 | 2 Remove (added 2026-11-21) |
 | ObjectClear | CVPR 2026 | 2 Remove |
 | VOSR 2.0 | CVPR 2026 | 4 Enhance, 5 Restore |
 | FLUX.2 [klein] 4B | 01/2026 | 1 Shared |
-| VIBE | 12/2025 | 1 Shared |
-| OmniGen2 | 06/2025 | 1 Shared |
 | RealEdit | CVPR 2025 | 1 Shared (classic) |
 | RORem | CVPR 2025 | 2 Remove |
 | Paint by Inpaint (add-finetuned-mb) | CVPR 2025 | 3 Add (mask-free; added 2026-11-21) |
 | HVI-CIDNet | CVPR 2025 | 4 Enhance |
 | BEN2 | 01/2025 | 7 Image-Formatting |
-| InstantIR | 10/2024 | 5 Restore |
 | InstructIR | ECCV 2024 | 4 Enhance |
 | EraseDraw v0.2 | ECCV 2024 | 3 Add (mask-free; added 2026-11-21) |
 | BiRefNet | 07/2024 | 7 Image-Formatting |
@@ -50,7 +46,7 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | Grounding DINO base | ECCV 2024 | Masks for lists 2, 3 and 6 |
 | SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3 and 6 |
 
-That is 26 editing models and 2 grounding models. List 7 also uses plain code (PIL) for crop, resize and rotate.
+That is 22 editing models and 2 grounding models (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on 2026-11-24 for latency: see "Left out"). List 7 also uses plain code (PIL) for crop, resize and rotate.
 
 ## Rules
 
@@ -83,11 +79,8 @@ Every model here runs on every sample of the benchmark set.
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| FLUX 3 Image Klein | 10/2026 | hf:black-forest-labs/flux-3-image-klein | 20.3 (transformer 11.10, text encoder 8.88, VAE 0.34) | FLUX Kommunity license, gated | medium | Accept the license on the page and use an HF token. The card is public (the files are not): it uses a **modular** pipeline (`Flux3DistilledAutoBlocks`, diffusers >= 0.42, which needs transformers >= 5.2: own venv `diffusers==0.43.0 transformers==5.8.1`); 16 steps, no guidance (distilled). Download only `transformer/`, `text_encoder/` (Qwen3-VL-4B), `vae/` and `modular_model_index.json`: the whole repository is 43 GB. Text encoder on cuda:0, transformer and fp32 VAE on cuda:1. The card says to always run its prompt upsampler (a 9.4B Qwen3.5, 18.8 GB): it does not fit next to the editor, so the instruction is sent as typed (a known quality risk). Check the scheduler shift (6.93 in diffusers, 16 in the reference code) once access is granted |
 | VAREdit 2B | ICLR 2026 | hf:HiDream-ai/VAREdit (`2B-512.pth`, `flan-t5-xl/`), gh:HiDream-ai/VAREdit; VAE `infinity_vae_d32reg.pth` from hf:FoundationVision/Infinity | about 11.7 (model 4.4, flan-t5-xl 5.7, VAE 1.6); the files are fp32: 8.8 + 11.4 + 1.6 GB to download | MIT | medium | Visual autoregressive, not diffusion, so it is fast. 512 x 512 only (the repository pads the input to a square and crops back). `infer.py` components, cfg 3.0, tau 0.1 (README table; the code defaults differ). The code hard-codes bf16 (tools/run_infinity.py) and imports flash_attn: the downloaded code is patched to fp16, flash-attn's varlen call is replaced by SDPA, the compiled fused norm by the same eager computation, the VAE decodes in fp32; the 2B VAE is not in the VAREdit repository but in FoundationVision/Infinity. One GPU; 21.8 GB download |
 | FLUX.2 [klein] 4B | 01/2026 | hf:black-forest-labs/FLUX.2-klein-4B | 16.0 (transformer 7.75, text encoder 8.04, VAE 0.17) | Apache 2.0 | easy | `Flux2KleinPipeline` (diffusers >= 0.37.0; own venv `diffusers==0.37.1`); 4 steps, guidance 1.0 (distilled); the photo is the pipeline's `image`. Text encoder (Qwen3-4B) on cuda:0, transformer on cuda:1, VAE in fp32 (decoded outside the pipeline). bf16-trained: watch for black images in fp16 |
-| VIBE | 12/2025 (arXiv 2601.02242) | hf:iitolstykh/VIBE-Image-Edit, gh:ai-forever/VIBE | 9.3 (Sana1.5 1.6B 3.8, Qwen3-VL-2B 4.3, VAE 1.2) | code Apache 2.0, model under the SANA license | medium | Fits one T4. Pipeline `VIBESanaEditingPipeline` loaded directly in fp16 (upstream `ImageEditor` hard-codes bf16 in vibe/editor.py line 54; its crop-back is also skipped: the pipeline output is resized back by the runner). 20 steps, guidance 4.5, image guidance 1.2. Own venv: diffusers 0.33.1, transformers 4.57.1 (Qwen3-VL), the package with --no-deps |
-| OmniGen2 | 06/2025 | hf:OmniGen2/OmniGen2, gh:VectorSpaceLab/OmniGen2 | about 15.6 (transformer 7.9, Qwen2.5-VL-3B 7.5); stored in fp32, 31 GB to download | Apache 2.0 | medium | Repository code (`OmniGen2Pipeline`, diffusers support is not done); runs on the machine's packages (the torch 2.6 pin is for training) plus einops. Its MLLM is Qwen2.5-VL-**3B** (7.5 GB in fp16), not 7B. No flash-attn on T4 (the repository falls back to SDPA). 50 steps, text guidance 5.0, image guidance 2.0, the inference.py negative prompt; model CPU offload on one GPU. The authors say fp16 "is not expected to perform well" (trained in bf16). Slow: about 5-7 min per image on a T4 (estimate), so its full run needs its own sessions |
 | *Classic:* RealEdit | CVPR 2025 | hf:peter-sushko/RealEdit | about 2.2 (.bin, fp32 on disk) | card: CC; GitHub: MIT | easy | `StableDiffusionInstructPix2PixPipeline`, `safety_checker=None`, Euler Ancestral scheduler, 50 steps, image guidance 2, guidance 7.5, long side 512 (card, notebook and inference.py). InstructPix2Pix fine-tuned on RealEdit, the source of 92% of our samples: its training split may contain some of our samples |
 | *Classic:* MagicBrush | NeurIPS 2023 | hf:vinesmsuic/magicbrush-jul7 | about 2.2 (.bin) | CreativeML OpenRAIL-M | easy | Community diffusers port of the authors' "recent best" checkpoint (osunlp/InstructPix2Pix-MagicBrush, .ckpt only; not the paper's epoch 168), fp32 .bin (4.3 GB to download). Same pipeline, 20 steps, guidance 7, image guidance 1.5 (the port's card) |
 | *Classic:* InstructPix2Pix | CVPR 2023 | hf:timbrooks/instruct-pix2pix | 2.7 | MIT | easy | `StableDiffusionInstructPix2PixPipeline` with `variant="fp16"` (otherwise the fp32 files are downloaded). Pipeline defaults: 100 steps, guidance 7.5, image guidance 1.5. |
@@ -137,7 +130,6 @@ All of these need a mask (see Grounding).
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
 | VOSR 2.0 | CVPR 2026 | as in list 4 | about 7.0 | Apache 2.0 | medium | For blurred, low-resolution and compressed photos. It does not remove scratches or tears. |
-| InstantIR | 10/2024 | hf:InstantX/InstantIR, gh:instantX-research/InstantIR | about 11-12 (SDXL base about 7, InstantIR .pt about 4, DINOv2-large 0.6) | Apache 2.0 | medium | Custom `InstantIRPipeline` from the repository; `facebook/dinov2-large` as the vision encoder (the script's default is a private path). 30 steps, cfg 7.0, the script's default prompt (the instruction is ignored), batch size 1, its resize (short side >= 768, long side <= 1024). Runs on the main environment (its imports still exist in diffusers 0.35-0.39; the authors' pins are old). One T4, about 12 GB of weights: tight |
 | *Classic:* CodeFormer | NeurIPS 2022 | gh:sczhou/CodeFormer, release v0.1.0 | 0.4 + face detection models | S-Lab, non-commercial | medium | As `inference_codeformer.py -w 0.7` on whole photos (RetinaFace, ParseNet paste-back), upscale 1, no background upsampler, fp32. Its bundled basicsr is imported without setup.py (only `archs` and `utils`) |
 | *Classic:* GFPGAN v1.4 | CVPR 2021 | gh:TencentARC/GFPGAN, `GFPGANv1.4.pth` in release v1.3.0 | small | Apache 2.0 (README) | medium | Restores faces; whole photos work (faces are found and pasted back). Upscale 1 and no Real-ESRGAN background (the runner shrinks outputs back anyway, and Real-ESRGAN is its own editor). Own venv: gfpgan 1.3.8, basicsr 1.4.2, facexlib 0.3.0 with --no-deps; `torchvision.transforms.functional_tensor` is pointed at `functional` |
 
@@ -180,6 +172,10 @@ All of these need a mask (see Grounding).
 
 | Model | Date | Why |
 |---|---|---|
+| FLUX 3 Image Klein | 10/2026 | Dropped on 2026-11-24 for latency: the assistant edits live. Quick test: it needs both T4s (23.7 GB), 45 s per image in fp16, and every fp16 output was black (NaN, 13 of 14; 1 out of memory); its training type bf16 has no tensor cores on the T4, so it would be slower still |
+| VIBE | 12/2025 | Dropped on 2026-11-24 for latency and precision: every fp16 output of the quick test was black (NaN, 14 of 14; 13 s per image); bf16 (its training type) is several times slower on the T4 |
+| OmniGen2 | 06/2025 | Dropped on 2026-11-24 for latency: 50 steps with three-way guidance and CPU offload, an estimated 5-7 min per image on a T4 (the quick test failed while loading; not measured) |
+| InstantIR | 10/2024 | Dropped on 2026-11-24 for latency: 4 min to load, SDXL with 30 steps plus its aggregator, an estimated 40-60 s per image on a T4 (the quick test failed in the VAE; not measured) |
 | AceTone-3B-PST-Preview | CVPR 2026 | Unsupported for our task, found when the Enhance smoke run was prepared (2026-11-22): the only released checkpoint (PST = photo style transfer) takes the raw photo **and a reference photo** ("mimic the toning method", `demo/predict_lut.py`, `eval/predict_lut_ddp.py`), not an instruction; the repository has no text-conditioned inference. Our samples have no reference photo, and using a human edit as one would leak the answer. It was listed here before as "writes a LUT from the instruction", which the checkpoint does not do |
 | DIM-4.6B-Edit | ICLR 2026 | Its demo sends every instruction to GPT-4o (a paid API) first; bf16 and flash-attention-2 hard-coded; non-commercial |
 | VAREdit 8B | ICLR 2026 | 33.5 GB in fp32 (about 17 GB in fp16), more than one T4; single-GPU code |
@@ -274,25 +270,25 @@ Every list runs with `src/editors` and `notebooks/editors_run.ipynb` (2 x T4, fp
 | InstructIR | Stevenlee206 | ok 5/5, 1.1 GB | ok 30/30, 0.5 s per image, 1.30 GB; EditReward -0.10 (significant), ImageReward +0.03 ns |
 | VOSR 2.0 | Stevenlee206 | ok 5/5, 8.8 GB (first run failed on a missing `fairscale`, fixed) | ok 30/30, 10.1 s per image, 9.10 GB; EditReward +0.11 (significant), ImageReward +0.04 ns |
 | AceTone | Stevenlee206 | unsupported (needs a reference photo) | left out, see "Left out" |
-| Real-ESRGAN x4plus, HVI-CIDNet, InstructIR, VOSR 2.0 in `src/editors` (enhance; VOSR also restore) | | code ready (2026-11-24), smoke run pending | |
-| InstantIR | | code ready (2026-11-24), smoke run pending | |
-| CodeFormer | | code ready (2026-11-24), smoke run pending | |
-| GFPGAN v1.4 | | code ready (2026-11-24), smoke run pending | |
-| DDColor | | code ready (2026-11-24), smoke run pending | |
-| SDXL Inpainting 0.1 (recolor) | | code ready (2026-11-24), smoke run pending | |
-| BEN2 | | code ready (2026-11-24), smoke run pending | |
-| BiRefNet | | code ready (2026-11-24), smoke run pending | |
-| SDXL Inpainting 0.1 (outpainting) | | code ready (2026-11-24), smoke run pending | |
-| Real-ESRGAN x4plus (resize up) | | code ready (2026-11-24), smoke run pending | |
-| plain code | | code ready (2026-11-24), smoke run pending | |
-| InstructPix2Pix | | code ready (2026-11-24), smoke run pending | |
-| MagicBrush | | code ready (2026-11-24), smoke run pending | |
-| RealEdit | | code ready (2026-11-24), smoke run pending | |
-| VIBE | | code ready (2026-11-24), smoke run pending | |
-| FLUX.2 [klein] 4B | | code ready (2026-11-24), smoke run pending | |
-| VAREdit 2B | | code ready (2026-11-24), smoke run pending | |
-| FLUX 3 Image Klein | | code ready (2026-11-24), smoke run pending | |
-| OmniGen2 | | code ready (2026-11-24), smoke run pending | |
+| Quick test of lists 1, 4 to 7 in `src/editors` (2026-11-24) | | 2 samples per task each model applies to, 2 x T4, fp16; seconds: median per image; GB: torch peak | |
+| Real-ESRGAN x4plus (enhance; formatting resize up) | | ok 3/3; 5.0 s, 0.8 GB | pending |
+| HVI-CIDNet | | ok 2/2; 0.9 s, 1.2 GB | pending |
+| InstructIR | | ok 2/2; 1.0 s, 1.1 GB | pending |
+| VOSR 2.0 (enhance, restore) | | ok 4/4; 14.3 s, 8.8 GB | pending |
+| CodeFormer | | ok 2/2; 3.2 s, 1.1 GB | pending |
+| GFPGAN v1.4 | | ok 2/2; 1.1 s, 1.1 GB (basicsr from its sdist on the path: building it failed in preflight) | pending |
+| DDColor | | ok 2/2; 0.6 s, 1.9 GB | pending |
+| SDXL Inpainting 0.1 (recolor) | | ok 2/2; 23.5 s, 9.6 GB | pending |
+| BEN2 | | ok 2/2; 1.3 s, 2.5 GB | pending |
+| BiRefNet | | ok 2/2; 1.2 s, 1.7 GB | pending |
+| SDXL Inpainting 0.1 (outpainting) | | nothing to run: no "extend" plan among the 15 format samples | pending |
+| plain code | | failed (GPU memory reset before CUDA started); fixed, re-run pending | |
+| InstructPix2Pix | | ok 14/14; 23.4 s, 2.8 GB | pending |
+| MagicBrush | | ok 14/14; 4.3 s, 2.8 GB | pending |
+| RealEdit | | ok 14/14; 11.9 s, 2.8 GB | pending |
+| FLUX.2 [klein] 4B | | ok 14/14; 17.5 s, 19.7 GB over 2 T4s (fp16 gives no black images) | pending |
+| VAREdit 2B | | failed on loading (the flash_attn stand-in had no module spec); fixed, re-run pending | |
+| InstantIR, OmniGen2, VIBE, FLUX 3 Image Klein | | dropped for latency, see "Left out" | |
 
 Findings of the full runs (2026-11-21; no scores yet, the scorer is built separately: judged on the contact sheets):
 - Remove: OSOR first (fast and clean), then RORem and ObjectClear; LaMa and MI-GAN are the fast baselines.

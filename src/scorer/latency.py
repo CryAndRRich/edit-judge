@@ -64,7 +64,7 @@ def reset_gpu_peak() -> None:
         import torch
     except ImportError:
         return
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and torch.cuda.is_initialized():   # before CUDA starts: "Invalid device argument"
         for index in range(torch.cuda.device_count()):
             torch.cuda.reset_peak_memory_stats(index)
 
@@ -75,7 +75,7 @@ def gpu_peak_gb() -> float | None:
         import torch
     except ImportError:
         return None
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available() or not torch.cuda.is_initialized():   # nothing ran on the GPU (e.g. plain code)
         return None
     peak = sum(torch.cuda.max_memory_allocated(index) for index in range(torch.cuda.device_count()))
     return round(peak / 1e9, 2)

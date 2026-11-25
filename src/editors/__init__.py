@@ -19,6 +19,9 @@ list 1 run on every task. A run has these steps, each resumable and each writing
 Register each editor as name -> "module:Class" (module relative to this package); modules are imported only when an
 editor is used, so torch loads only then. To add one, subclass base.Editor in its own file in models/ and register
 it here.
+
+Dropped on 2026-11-24 for latency (the assistant edits live; MODEL_LIST.md "Left out"): InstantIR, OmniGen2, VIBE,
+FLUX 3 Image Klein.
 """
 
 import importlib
@@ -40,7 +43,6 @@ EDITORS: dict[str, str] = {
     "instructir": ".models.instructir:InstructIR",      # list 4 (ECCV 2024)
     "vosr": ".models.vosr:VOSR",                        # lists 4 and 5 (CVPR 2026)
     # list 5 Restore
-    "instantir": ".models.instantir:InstantIR",        # list 5 (10/2024)
     "codeformer": ".models.codeformer:CodeFormer",      # list 5, classic (NeurIPS 2022)
     "gfpgan": ".models.gfpgan:GFPGAN",                  # list 5, classic (CVPR 2021)
     # list 6 Change-Color (and sdxl-inpaint above, op recolor)
@@ -54,11 +56,8 @@ EDITORS: dict[str, str] = {
     "instruct-pix2pix": ".models.instruct_add:InstructPix2Pix",  # classic (CVPR 2023)
     "magicbrush": ".models.instruct_add:MagicBrush",    # classic (NeurIPS 2023)
     "realedit": ".models.instruct_add:RealEdit",        # classic (CVPR 2025)
-    "omnigen2": ".models.omnigen2:OmniGen2",            # 06/2025
-    "vibe": ".models.vibe:VIBE",                        # 12/2025
     "flux2-klein-4b": ".models.flux2_klein:Flux2Klein4B",   # 01/2026
     "varedit-2b": ".models.varedit:VAREdit2B",          # ICLR 2026
-    "flux3-klein": ".models.flux3_klein:Flux3Klein",    # 10/2026, gated (HF_TOKEN)
 }
 
 

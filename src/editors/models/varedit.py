@@ -123,9 +123,13 @@ def eager_ada_layer_norm(**arguments):
 
 def install_flash_attn_stand_in():
     """A `flash_attn` module for basic.py's imports; its fused ops stay unavailable (basic.py catches that)."""
+    import importlib.machinery
     import types
 
     module = types.ModuleType("flash_attn")
+    # importlib.util.find_spec raises ValueError for a module without a spec (transformers calls it while importing
+    # T5); with one, transformers finds no installed flash_attn distribution and keeps its own attention
+    module.__spec__ = importlib.machinery.ModuleSpec("flash_attn", None)
     module.flash_attn_func = unavailable_flash_attn
     module.flash_attn_varlen_kvpacked_func = sdpa_varlen_kvpacked
     sys.modules["flash_attn"] = module

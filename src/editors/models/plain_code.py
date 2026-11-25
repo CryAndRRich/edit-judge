@@ -1,8 +1,9 @@
 """Plain code (PIL), the "sometimes the right answer" baseline of MODEL_LIST.md list 7: the format action of the
 sample's plan (plan_v4, op "format") carried out exactly, with no model.
 
-Actions: crop (to the plan's box), rotate (by the plan's degrees, counter-clockwise; multiples of 90 turn the whole
-image, other angles rotate about the centre on the same canvas, corners filled with white), flip (horizontal or
+Actions: crop (to the plan's box), rotate (by the plan's degrees, counter-clockwise as plan_v4 asks, or clockwise
+when the plan's direction says "clockwise": Qwen sometimes gives 90 with that direction; multiples of 90 turn the
+whole image, other angles rotate about the centre on the same canvas, corners filled with white), flip (horizontal or
 vertical), resize (by the plan's scale, LANCZOS, long side capped at 2,048 px) and grayscale. Other actions
 (extend, cutout, other) and plans without the value they need are n/a. Crop, a quarter turn and resize change the
 size, so their outputs keep it (`keep_size` False). CPU only; deterministic.
@@ -23,7 +24,11 @@ def carry_out(image, plan: dict):
     if action == "crop":
         return image.crop(tuple(plan["box"])), True
     if action == "rotate":
-        degrees = float(plan["degrees"]) % 360
+        degrees = float(plan["degrees"])
+        direction = plan.get("direction") or ""
+        if "clockwise" in direction and not direction.startswith(("counter", "anti")):
+            degrees = -abs(degrees)
+        degrees %= 360
         if degrees % 90 == 0:
             return image.rotate(degrees, expand=True), degrees % 180 != 0
         return image.rotate(degrees, resample=Image.Resampling.BICUBIC, fillcolor=FILL), False

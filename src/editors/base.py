@@ -73,6 +73,7 @@ class Editor:
     local_dirs: tuple[str, ...] = ()    # folders it makes in EJ_MODELS_DIR (code, weights; deleted afterwards)
     download_gb: float = 0.0    # about how much it downloads
     gpus: int = 1           # GPUs it needs (2: split over both)
+    loaded_on: str | None = None    # the device load() ran for (several tasks in one process load once)
 
     def fetch(self) -> None:
         """Download the code and weights of load() without loading anything (no GPU, no heavy import), so the
@@ -190,9 +191,11 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
     if not to_edit:
         return summary(editor.name, task, samples, version)
     started = time.monotonic()
-    editor.load(device)
+    if editor.loaded_on != device:
+        editor.load(device)
+        editor.loaded_on = device
+        print(f"loaded {editor.name} on {device} in {time.monotonic() - started:.0f} s", flush=True)
     load_seconds = round(time.monotonic() - started, 1)
-    print(f"loaded {editor.name} on {device} in {load_seconds:.0f} s", flush=True)
     for index, sample in enumerate(to_edit):
         with Image.open(SAMPLES_DIR / sample["id"] / "original.jpg") as im:
             image = im.convert("RGB")

@@ -13,7 +13,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
-| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `MODEL_LIST.md` (28 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); list 4 ran outside `src/editors` (2026-11-22) and is ported; lists 1, 4 to 7 wait for their Kaggle smoke runs; scores wait for the scorer |
+| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `MODEL_LIST.md` (24 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); the quick test of lists 1, 4 to 7 (2 samples per task, 2026-11-24) ran 14 models; 4 slow ones were dropped, plain code and VAREdit 2B are re-run; scores wait for the scorer output |
 | 5. The editing assistant | (no code yet) | Planned |
 
 ## Repository layout
@@ -523,7 +523,7 @@ Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.jso
 
 ## Editing models (`src.editors`)
 
-The models of `MODEL_LIST.md` (all 7 lists, 28 editors: `python -m src.editors list`), run on a small fixed set of
+The models of `MODEL_LIST.md` (all 7 lists, 24 editors: `python -m src.editors list`), run on a small fixed set of
 dev samples per task and judged by the scorer:
 
 | Task | Ops | Specialists (list) |
@@ -531,13 +531,14 @@ dev samples per task and judged by the scorer:
 | remove | remove | `lama`, `migan`, `rorem`, `objectclear`, `osor` (2) |
 | add_replace | add, replace, background | `sdxl-inpaint`; mask-free `paint-by-inpaint`, `erasedraw` (add only) (3) |
 | enhance | light, enhance | `realesrgan`, `hvi-cidnet` (light only), `instructir`, `vosr` (4) |
-| restore | restore | `vosr`, `instantir`, `codeformer`, `gfpgan` (5) |
+| restore | restore | `vosr`, `codeformer`, `gfpgan` (5) |
 | change_color | colorize, recolor | `ddcolor` (colorize), `sdxl-inpaint` (recolor) (6) |
 | formatting | cutout, format | `ben2`, `birefnet` (cutout); `plain-code`, `sdxl-outpaint`, `realesrgan` (format actions) (7) |
 | open_ended | open | none: the generalists only |
 
-The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `vibe`, `flux2-klein-4b`, `varedit-2b`,
-`flux3-klein`, `omnigen2`) run on every task, with the instruction as their prompt. The inpainting models need a
+The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `flux2-klein-4b`, `varedit-2b`) run on
+every task, with the instruction as their prompt (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on
+2026-11-24 as too slow for live editing: `MODEL_LIST.md`, "Left out"). The inpainting models need a
 mask for every sample; the mask-free ones get the instruction instead. Models whose code pins other packages get
 their own environment (`install`, `src/common/envs.py`; the pins are recorded in `requirements-editors.txt`);
 models that ship code but no package are downloaded at a pinned commit into `EJ_MODELS_DIR`.
@@ -547,6 +548,7 @@ python -m src.editors samples --task remove          # 30 dev samples with a "Re
 python -m src.editors plan --task remove --limit 5   # Kaggle: Qwen2.5-VL-7B says what to find / where / what to paint
 python -m src.editors masks --task remove --limit 5  # Kaggle: Grounding DINO + SAM 2.1 (add: the plan's box)
 python -m src.editors runall --task remove --limit 5 # Kaggle: every model of the task, each in its own process
+python -m src.editors runall --tasks enhance,restore --models vosr   # several tasks in one process: loads once
 python -m src.editors score --task remove            # Kaggle: mlp-siglip on the outputs and the human edits
 python -m src.editors report --task remove           # work/editors/remove/report.md and contact sheets
 python -m src.editors summary                        # work/editors/summary.md: every task and model in one table

@@ -12,6 +12,8 @@ formatting or open_ended.
     python -m src.editors runall --task TASK [--models a,b] [--limit N] [--per-editor N]
                                                                  every model of the task, each in its own process
                                                                  (and environment, src/common/envs.py), in order
+    run and runall also take --tasks a,b,... instead of --task: the tasks one after another in the same process,
+    so each model loads once
     python -m src.editors score --task TASK [--run mlp-siglip]   the scorer on human edits and model outputs (GPU)
     python -m src.editors report --task TASK [--no-sheets]       work/editors/<task>/report.md and contact sheets
     python -m src.editors summary                                work/editors/summary.md: every task and model
@@ -39,14 +41,19 @@ def stream(command: list[str]) -> int:
     return process.wait()
 
 
-def run_all(task: str, models: list[str], limit: int | None = None, extra: list[str] | None = None) -> dict:
+def run_all(tasks: list[str], models: list[str], limit: int | None = None, extra: list[str] | None = None) -> dict:
     """Each model in its own process (a crash or a CUDA error of one model cannot stop the others), in its own
-    environment when it has an `install`."""
+    environment when it has an `install`; one process runs all `tasks` of the model (it loads once)."""
     from ..common.envs import ensure_env
 
     codes = {}
     for name in models:
         editor = get_editor(name)
+        own_tasks = [task for task in tasks if task in editor.tasks]
+        if not own_tasks:
+            print(f"=== {name}: none of its tasks in {', '.join(tasks)}", flush=True)
+            codes[name] = "no task"
+            continue
         log_path = EDITORS_DIR / "logs" / f"env-{name}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -56,8 +63,8 @@ def run_all(task: str, models: list[str], limit: int | None = None, extra: list[
             print(f"FAILED environment for {name}; see {log_path}", flush=True)
             codes[name] = "environment failed"
             continue
-        print(f"=== {name} ({task})", flush=True)
-        command = [python, "-u", "-m", "src.editors", "run", "--task", task, "--model", name]
+        print(f"=== {name} ({', '.join(own_tasks)})", flush=True)
+        command = [python, "-u", "-m", "src.editors", "run", "--tasks", ",".join(own_tasks), "--model", name]
         command += (["--limit", str(limit)] if limit is not None else []) + (extra or [])
         codes[name] = stream(command)
         print(f"=== {'done' if codes[name] == 0 else 'FAILED'} {name}", flush=True)
@@ -70,6 +77,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("command", choices=["list", "info", "fetch", "samples", "plan", "masks", "run",
                                                 "runall", "score", "report", "summary"])
     parser.add_argument("--task", choices=TASKS)
+    parser.add_argument("--tasks", help="run, runall: comma-separated tasks, one after another in one process")
     parser.add_argument("--model", help="run: the editor")
     parser.add_argument("--models", help="runall: comma-separated editors (default: every editor of the task)")
     parser.add_argument("--size", type=int, default=30, help="samples: samples per task")
@@ -105,7 +113,12 @@ def main(argv: list[str] | None = None) -> None:
         from .report import overview
         print(overview())
         return
-    if args.command != "list" and not args.task:
+    tasks = args.tasks.split(",") if args.tasks else [args.task] if args.task else []
+    if any(task not in TASKS for task in tasks):
+        parser.error(f"unknown task in {args.tasks}")
+    if args.tasks and args.command not in ("run", "runall"):
+        parser.error("--tasks is for run and runall; the other commands take --task")
+    if args.command != "list" and not tasks:
         parser.error("--task is required")
     common = {"device": args.device, "allow_cpu": args.allow_cpu}
     plan_args = {"client_name": args.client, "version": args.prompt_version}
@@ -134,14 +147,25 @@ def main(argv: list[str] | None = None) -> None:
         from .base import run
         if not args.model:
             parser.error("run needs --model")
-        result = run(get_editor(args.model), args.task, limit=args.limit, per_editor=args.per_editor, **plan_args,
-                     **common)
+        editor, result, failed = get_editor(args.model), {}, False
+        for task in tasks:              # one editor object: it loads once (base.run)
+            try:
+                result[task] = run(editor, task, limit=args.limit, per_editor=args.per_editor, **plan_args,
+                                   **common)
+            except SystemExit as stop:  # e.g. no plans yet for this task: go on with the next one
+                print(f"{args.model} {task}: {stop}", flush=True)
+                result[task], failed = str(stop), True
+            print(json.dumps(result[task], indent=1), flush=True)
+        if failed:
+            sys.exit(1)
+        return
     elif args.command == "runall":
-        models = args.models.split(",") if args.models else editors_of(args.task)
+        models = args.models.split(",") if args.models else \
+            [name for name in EDITORS if any(name in editors_of(task) for task in tasks)]
         extra = (["--device", args.device] if args.device else []) + (["--allow-cpu"] if args.allow_cpu else [])
         extra += ["--per-editor", str(args.per_editor)] if args.per_editor is not None else []
         extra += ["--client", args.client] + (["--prompt-version", str(args.prompt_version)] if args.prompt_version else [])
-        result = run_all(args.task, models, args.limit, extra)
+        result = run_all(tasks, models, args.limit, extra)
         if any(code != 0 for code in result.values()):
             print(json.dumps(result, indent=1))
             sys.exit(1)
