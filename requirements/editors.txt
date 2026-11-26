@@ -12,7 +12,7 @@ opencv-python-headless    # imported by ObjectClear's code (downloaded at a pinn
 # lama: big-lama.pt (TorchScript) from simple-lama-inpainting release v0.1.0, loaded with torch.jit; no package
 # migan: migan_traced.pt (TorchScript) from Sanster/models release "migan", loaded with torch.jit; no package
 # Repository code downloaded at a pinned commit (no package): objectclear, osor, hvi-cidnet, instructir, vosr,
-# codeformer, ddcolor, varedit-2b. Remote code pinned by HF revision: ben2, birefnet.
+# codeformer, ddcolor. Remote code pinned by HF revision: ben2, birefnet.
 #
 # Own environments (the editor's `install`, on top of the machine's packages):
 # realesrgan:      spandrel==0.4.2

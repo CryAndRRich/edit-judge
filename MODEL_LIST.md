@@ -21,7 +21,6 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 
 | Model | Date | Tasks (list numbers) |
 |---|---|---|
-| VAREdit 2B | ICLR 2026 | 1 Shared |
 | OSOR-SDXL-Inpainting | ECCV 2026 | 2 Remove (added 2026-11-21) |
 | ObjectClear | CVPR 2026 | 2 Remove |
 | VOSR 2.0 | CVPR 2026 | 4 Enhance, 5 Restore |
@@ -46,7 +45,7 @@ Conference acceptances come from the authors' README or arXiv page. The conferen
 | Grounding DINO base | ECCV 2024 | Masks for lists 2, 3 and 6 |
 | SAM 2.1 large | ICLR 2025 | Masks for lists 2, 3 and 6 |
 
-That is 22 editing models and 2 grounding models (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on 2026-11-24 for latency: see "Left out"). List 7 also uses plain code (PIL) for crop, resize and rotate.
+That is 21 editing models and 2 grounding models (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on 2026-11-24 for latency, VAREdit 2B on 2026-11-26: see "Left out"). List 7 also uses plain code (PIL) for crop, resize and rotate.
 
 ## Rules
 
@@ -79,13 +78,12 @@ Every model here runs on every sample of the benchmark set.
 
 | Model | Date | Source | Weights (fp16) | License | Effort | Settings and notes |
 |---|---|---|---|---|---|---|
-| VAREdit 2B | ICLR 2026 | hf:HiDream-ai/VAREdit (`2B-512.pth`, `flan-t5-xl/`), gh:HiDream-ai/VAREdit; VAE `infinity_vae_d32reg.pth` from hf:FoundationVision/Infinity | about 11.7 (model 4.4, flan-t5-xl 5.7, VAE 1.6); the files are fp32: 8.8 + 11.4 + 1.6 GB to download | MIT | medium | Visual autoregressive, not diffusion, so it is fast. 512 x 512 only (the repository pads the input to a square and crops back). `infer.py` components, cfg 3.0, tau 0.1 (README table; the code defaults differ). The code hard-codes bf16 (tools/run_infinity.py) and imports flash_attn: the downloaded code is patched to fp16, flash-attn's varlen call is replaced by SDPA, the compiled fused norm by the same eager computation, the VAE decodes in fp32; the 2B VAE is not in the VAREdit repository but in FoundationVision/Infinity. One GPU; 21.8 GB download |
 | FLUX.2 [klein] 4B | 01/2026 | hf:black-forest-labs/FLUX.2-klein-4B | 16.0 (transformer 7.75, text encoder 8.04, VAE 0.17) | Apache 2.0 | easy | `Flux2KleinPipeline` (diffusers >= 0.37.0; own venv `diffusers==0.37.1`); 4 steps, guidance 1.0 (distilled); the photo is the pipeline's `image`. Text encoder (Qwen3-4B) on cuda:0, transformer on cuda:1, VAE in fp32 (decoded outside the pipeline). bf16-trained: watch for black images in fp16 |
 | *Classic:* RealEdit | CVPR 2025 | hf:peter-sushko/RealEdit | about 2.2 (.bin, fp32 on disk) | card: CC; GitHub: MIT | easy | `StableDiffusionInstructPix2PixPipeline`, `safety_checker=None`, Euler Ancestral scheduler, 50 steps, image guidance 2, guidance 7.5, long side 512 (card, notebook and inference.py). InstructPix2Pix fine-tuned on RealEdit, the source of 92% of our samples: its training split may contain some of our samples |
 | *Classic:* MagicBrush | NeurIPS 2023 | hf:vinesmsuic/magicbrush-jul7 | about 2.2 (.bin) | CreativeML OpenRAIL-M | easy | Community diffusers port of the authors' "recent best" checkpoint (osunlp/InstructPix2Pix-MagicBrush, .ckpt only; not the paper's epoch 168), fp32 .bin (4.3 GB to download). Same pipeline, 20 steps, guidance 7, image guidance 1.5 (the port's card) |
 | *Classic:* InstructPix2Pix | CVPR 2023 | hf:timbrooks/instruct-pix2pix | 2.7 | MIT | easy | `StableDiffusionInstructPix2PixPipeline` with `variant="fp16"` (otherwise the fp32 files are downloaded). Pipeline defaults: 100 steps, guidance 7.5, image guidance 1.5. |
 
-**This list is short.** Most new open generalists are 30-58 GB in fp16 and do not fit 2 T4s without quantization (see "Left out"). Of the new ones that fit, only VAREdit 2B has a conference paper.
+**This list is short.** Most new open generalists are 30-58 GB in fp16 and do not fit 2 T4s without quantization (see "Left out"). VAREdit 2B (ICLR 2026), the one new model with a conference paper that fits, was dropped (see "Left out").
 
 ## 2. Remove (objects, people, text, logos)
 
@@ -172,6 +170,7 @@ All of these need a mask (see Grounding).
 
 | Model | Date | Why |
 |---|---|---|
+| VAREdit 2B | ICLR 2026 | Dropped on 2026-11-26: a 22 GB download (fp32 files), bf16 code that had to be patched to fp16 for the T4 (overflow risk) and a 512 x 512 square only; it never ran (its quick test failed on loading). The live demo keeps fewer, simpler generalists |
 | FLUX 3 Image Klein | 10/2026 | Dropped on 2026-11-24 for latency: the assistant edits live. Quick test: it needs both T4s (23.7 GB), 45 s per image in fp16, and every fp16 output was black (NaN, 13 of 14; 1 out of memory); its training type bf16 has no tensor cores on the T4, so it would be slower still |
 | VIBE | 12/2025 | Dropped on 2026-11-24 for latency and precision: every fp16 output of the quick test was black (NaN, 14 of 14; 13 s per image); bf16 (its training type) is several times slower on the T4 |
 | OmniGen2 | 06/2025 | Dropped on 2026-11-24 for latency: 50 steps with three-way guidance and CPU offload, an estimated 5-7 min per image on a T4 (the quick test failed while loading; not measured) |
@@ -287,8 +286,7 @@ Every list runs with `src/editors` and `notebooks/editors_run.ipynb` (2 x T4, fp
 | MagicBrush | | ok 14/14; 4.3 s, 2.8 GB | pending |
 | RealEdit | | ok 14/14; 11.9 s, 2.8 GB | pending |
 | FLUX.2 [klein] 4B | | ok 14/14; 17.5 s, 19.7 GB over 2 T4s (fp16 gives no black images) | pending |
-| VAREdit 2B | | failed on loading (the flash_attn stand-in had no module spec); fixed, re-run pending | |
-| InstantIR, OmniGen2, VIBE, FLUX 3 Image Klein | | dropped for latency, see "Left out" | |
+| InstantIR, OmniGen2, VIBE, FLUX 3 Image Klein, VAREdit 2B | | dropped, see "Left out" | |
 
 Findings of the full runs (2026-11-21; no scores yet, the scorer is built separately: judged on the contact sheets):
 - Remove: OSOR first (fast and clean), then RORem and ObjectClear; LaMa and MI-GAN are the fast baselines.

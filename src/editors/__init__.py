@@ -21,7 +21,7 @@ editor is used, so torch loads only then. To add one, subclass base.Editor in it
 it here.
 
 Dropped on 2026-11-24 for latency (the assistant edits live; MODEL_LIST.md "Left out"): InstantIR, OmniGen2, VIBE,
-FLUX 3 Image Klein.
+FLUX 3 Image Klein; VAREdit 2B on 2026-11-26.
 """
 
 import importlib
@@ -57,7 +57,6 @@ EDITORS: dict[str, str] = {
     "magicbrush": ".models.instruct_add:MagicBrush",    # classic (NeurIPS 2023)
     "realedit": ".models.instruct_add:RealEdit",        # classic (CVPR 2025)
     "flux2-klein-4b": ".models.flux2_klein:Flux2Klein4B",   # 01/2026
-    "varedit-2b": ".models.varedit:VAREdit2B",          # ICLR 2026
 }
 
 

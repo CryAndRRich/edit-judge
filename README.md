@@ -13,7 +13,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
-| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `MODEL_LIST.md` (24 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); the quick test of lists 1, 4 to 7 (2 samples per task, 2026-11-24) ran 14 models; 4 slow ones were dropped, plain code and VAREdit 2B are re-run; scores wait for the scorer output |
+| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `MODEL_LIST.md` (23 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); the quick test of lists 1, 4 to 7 (2 samples per task, 2026-11-24) ran 14 models; 4 slow ones and VAREdit 2B were dropped; next, every model on the first 80 samples of each task, scored (`SESSION = "small"`, about 9-10 h) |
 | 5. The editing assistant | (no code yet) | Planned |
 
 ## Repository layout
@@ -528,7 +528,7 @@ Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.jso
 
 ## Editing models (`src.editors`)
 
-The models of `MODEL_LIST.md` (all 7 lists, 24 editors: `python -m src.editors list`), run on a small fixed set of
+The models of `MODEL_LIST.md` (all 7 lists, 23 editors: `python -m src.editors list`), run on a small fixed set of
 dev samples per task and judged by the scorer:
 
 | Task | Ops | Specialists (list) |
@@ -541,9 +541,9 @@ dev samples per task and judged by the scorer:
 | formatting | cutout, format | `ben2`, `birefnet` (cutout); `plain-code`, `sdxl-outpaint`, `realesrgan` (format actions) (7) |
 | open_ended | open | none: the generalists only |
 
-The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `flux2-klein-4b`, `varedit-2b`) run on
+The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `flux2-klein-4b`) run on
 every task, with the instruction as their prompt (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on
-2026-11-24 as too slow for live editing: `MODEL_LIST.md`, "Left out"). The inpainting models need a
+2026-11-24 as too slow for live editing, VAREdit 2B on 2026-11-26: `MODEL_LIST.md`, "Left out"). The inpainting models need a
 mask for every sample; the mask-free ones get the instruction instead. Models whose code pins other packages get
 their own environment (`install`, `src/common/envs.py`; the pins are recorded in `requirements/editors.txt`);
 models that ship code but no package are downloaded at a pinned commit into `EJ_MODELS_DIR`.
