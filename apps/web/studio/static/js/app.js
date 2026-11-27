@@ -607,6 +607,26 @@
     blockWatcher.unobserve(entry.target);
   }), { threshold: 0.12 });
 
+  // ---------------------------------------------------------------- the background moves only while watched
+  // The falling photos make the browser draw the whole window again every frame: on a laptop that is about a
+  // third of a CPU core and a busy fan (measured 2026-11-28; blurring the photos once in a canvas did not help).
+  // They stop while the window is not focused or nobody touched the page for IDLE_MS, and go on from where they
+  // stopped at the next input. A stopped animation draws nothing.
+  const IDLE_MS = 60000;
+  let idleTimer = null;
+  function setBackgroundMoving(moving) {
+    document.body.classList.toggle("still", !moving);
+  }
+  function wake() {
+    setBackgroundMoving(true);
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => setBackgroundMoving(false), IDLE_MS);
+  }
+  ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"].forEach((type) =>
+    window.addEventListener(type, wake, { passive: true }));
+  window.addEventListener("focus", wake);
+  window.addEventListener("blur", () => { clearTimeout(idleTimer); setBackgroundMoving(false); });
+
   // ---------------------------------------------------------------- start
   let savedTheme = null;
   try { savedTheme = localStorage.getItem("ej-theme"); } catch (error) { savedTheme = null; }
@@ -615,4 +635,5 @@
   renderHero();
   loadSamples();
   showView(viewOfHash());
+  if (document.hasFocus()) wake(); else setBackgroundMoving(false);
 })();

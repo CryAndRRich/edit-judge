@@ -31,6 +31,7 @@ body { background-attachment: scroll; }
   animation: fall var(--speed, 20s) linear infinite; animation-delay: var(--delay, 0s); }
 .fall .collage-tile { position: relative; flex: none; width: 100%; margin: 0 0 28px; animation: none; }
 @keyframes fall { from { transform: translateY(-50%); } to { transform: translateY(0); } }
+body.still .fall { animation-play-state: paused; }   /* nobody watching (app.js): nothing is drawn */
 .veil { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(243, 247, 244, 0.35) 25%, rgba(243, 247, 244, 0.6) 60%, rgba(243, 247, 244, 0.72) 100%); }
 
 /* ---------------------------------------------------------------- top bar: tabs with a sliding pill, theme button */

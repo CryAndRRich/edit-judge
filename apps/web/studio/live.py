@@ -444,8 +444,8 @@ class GpuEditors:
             self.evict(name)
 
     def info(self) -> dict:
-        return {"on_gpu": {name: round(size, 1) for name, size in self.on_gpu.items()},
-                "in_ram": {name: round(size, 1) for name, size in self.in_ram.items()},
+        return {"on_gpu": {name: round(size, 1) for name, (_, size) in self.on_gpu.items()},
+                "in_ram": {name: round(size, 1) for name, (_, size) in self.in_ram.items()},
                 "editors_gb": round(self.used_gb(), 1), "budget_gb": self.budget_gb,
                 "ram_gb": round(self.ram_used_gb(), 1), "ram_budget_gb": self.ram_gb}
 
