@@ -45,13 +45,22 @@ def import_repository(folder):
     module objects keep working)."""
     import importlib
 
+    from ...paths import MODELS_DIR
+
     saved = {key: sys.modules.pop(key) for key in list(sys.modules) if is_repo_module(key)}
+    # the other repositories' folders leave sys.path during the import: InstructIR's `models` has no
+    # __init__.py, and Python prefers a regular `models` package anywhere on the path (VOSR's) to it
+    # (2026-11-28, one process for every editor: "No module named 'models.instructir'" after VOSR)
+    others = [entry for entry in sys.path if entry.startswith(str(MODELS_DIR)) and entry != str(folder)]
+    for entry in others:
+        sys.path.remove(entry)
     sys.path.insert(0, str(folder))
     try:
         instructir = importlib.import_module("models.instructir")
         text_models = importlib.import_module("text.models")
     finally:
         sys.path.remove(str(folder))
+        sys.path.extend(others)
         for key in [key for key in sys.modules if is_repo_module(key)]:
             del sys.modules[key]
         sys.modules.update(saved)
