@@ -23,12 +23,20 @@ ROOT = Path(__file__).resolve().parents[2]          # edit-judge/
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "apps" / "web"))
 os.environ.setdefault("HF_HOME", str(ROOT / "work" / "hf_cache"))   # before any Hugging Face import
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")                    # no request waits forever
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")                     # plain HTTPS, which prefer_ipv4 reaches
 
-SUPPORT = {                                          # name -> (Hugging Face repository, what it does)
-    "qwen": ("Qwen/Qwen2.5-VL-7B-Instruct", "reads the request, plans the edit"),
-    "grounding-dino": ("IDEA-Research/grounding-dino-base", "finds the region (boxes)"),
-    "sam2": ("facebook/sam2.1-hiera-large", "finds the region (mask)"),
-    "siglip": ("google/siglip-so400m-patch14-384", "our scorer's encoder (mlp-siglip)"),
+from studio.live import prefer_ipv4                                   # noqa: E402
+
+prefer_ipv4()                                                         # server A: IPv6 has no route out
+sys.stdout.reconfigure(line_buffering=True)                          # each line at once, also under nohup
+
+SUPPORT = {                          # name -> (Hugging Face repository, GB on 2026-11-27, what it does)
+    "qwen": ("Qwen/Qwen2.5-VL-7B-Instruct", 16.6, "reads the request, plans the edit"),
+    "grounding-dino": ("IDEA-Research/grounding-dino-base", 0.93, "finds the region (boxes)"),
+    "sam2": ("facebook/sam2.1-hiera-large", 0.9, "finds the region (mask)"),
+    "siglip": ("google/siglip-so400m-patch14-384", 3.52, "our scorer's encoder (mlp-siglip)"),
 }
 NOTHING = {"plain-code"}                             # editors without weights (PIL code)
 SKIP_FORMATS = ["*.msgpack", "*.h5", "*.onnx", "*.ot", "flax_model*", "tf_model*", "*.gguf"]
@@ -65,8 +73,8 @@ def items(only: set[str] | None) -> list[dict]:
     from studio.assistant import downloadable_models
 
     rows = []
-    for name, (repo, role) in SUPPORT.items():
-        rows.append({"name": name, "kind": "support", "repo": repo, "role": role})
+    for name, (repo, size, role) in SUPPORT.items():
+        rows.append({"name": name, "kind": "support", "repo": repo, "gb": size, "role": role})
     counted = set()
     for name in downloadable_models():
         editor = get_editor(name)
@@ -93,11 +101,11 @@ def main() -> None:
     print(f"\n{'name':16} {'kind':8} {'GB':>6}  what")
     for row in rows:
         if row["kind"] == "support":
-            try:
-                row["gb"] = repo_gb(row["repo"])
-            except Exception as error:               # offline or rate-limited: the size only
-                row["gb"] = 0.0
-                print(f"  (size of {row['repo']} unknown: {type(error).__name__})")
+            if args.dry_run:                         # the size today (the download itself does not need it)
+                try:
+                    row["gb"] = repo_gb(row["repo"])
+                except Exception as error:           # offline or rate-limited: the size of 2026-11-27
+                    print(f"  (size of {row['repo']} not checked: {type(error).__name__})")
             what = f"{row['repo']}: {row['role']}"
         elif row["name"] in NOTHING:
             what = row["role"] + ": nothing to download"
@@ -117,6 +125,8 @@ def main() -> None:
     failed = []
     for row in rows:
         began = time.monotonic()
+        if row["kind"] == "support" or row["fetch"]:
+            print(f"...     {row['name']:16} {row['gb']:.2f} GB", flush=True)
         try:
             if row["kind"] == "support":
                 snapshot_download(row["repo"], ignore_patterns=repo_patterns(row["repo"]))

@@ -76,11 +76,31 @@ def use_real() -> bool:
     return cuda_available()
 
 
+def prefer_ipv4() -> None:
+    """Connections try the IPv4 addresses of a host first. Server A has IPv6 addresses without a working IPv6
+    route (2026-11-28: curl -6 to huggingface.co times out, -4 answers in 0.3 s); Python tries the addresses in
+    the order the resolver gives, IPv6 first, and waits on each. Without sudo the system preference
+    (/etc/gai.conf) cannot change, so the order is changed here for this process."""
+    import socket
+    if getattr(socket.getaddrinfo, "prefers_ipv4", False):
+        return
+    resolve = socket.getaddrinfo
+
+    def ipv4_first(*args, **kwargs):
+        return sorted(resolve(*args, **kwargs), key=lambda address: address[0] != socket.AF_INET)
+
+    ipv4_first.prefers_ipv4 = True
+    socket.getaddrinfo = ipv4_first
+
+
 def server_defaults() -> None:
-    """On the GPU server, the Hugging Face and torch caches go into the repository's git-ignored work/ (with
-    everything else of the project: models, outputs) unless HF_HOME / TORCH_HOME say otherwise. Call before any
-    Hugging Face import."""
+    """On the GPU server: IPv4 first (prefer_ipv4), Hugging Face downloads over plain HTTPS (the Xet client has
+    its own network code, which the IPv4 order does not reach), and the Hugging Face and torch caches in the
+    repository's git-ignored work/ (with everything else of the project: models, outputs) unless HF_HOME /
+    TORCH_HOME say otherwise. Call before any Hugging Face import."""
     if use_real():
+        prefer_ipv4()
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
         cache = REPO_ROOT / "work" / "hf_cache"
         os.environ.setdefault("HF_HOME", str(cache))
         os.environ.setdefault("TORCH_HOME", str(cache / "torch"))
