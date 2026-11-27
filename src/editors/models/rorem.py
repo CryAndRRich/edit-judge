@@ -9,6 +9,7 @@ mask the same way for every model).
 """
 
 from ..base import Editor
+from .fetch import pipeline_files
 
 MODEL = "LetsThink/RORem"
 REVISION = "22d02de974c8dc92c717cd3431f8b0fe0eeecc3b"
@@ -22,6 +23,11 @@ class RORem(Editor):
     model_id = f"{MODEL}@{REVISION[:7]}"
     tasks = ("remove",)
     settings = {"size": RESOLUTION, "steps": 50, "strength": 0.99, "guidance": 1.0, "prompt": "authors' quality prompt"}
+    repos = (MODEL,)
+    download_gb = 6.95
+
+    def fetch(self) -> None:
+        pipeline_files(MODEL, revision=REVISION)
 
     def load(self, device: str) -> None:
         import torch

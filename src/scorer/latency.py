@@ -116,12 +116,13 @@ def encode_request(backbones: dict, request: dict, device: str) -> dict:
 class TrainedRun:
     """A run's seed heads and feature standardisation from head.pt, scoring a request's two edits."""
 
-    def __init__(self, name: str, device: str):
+    def __init__(self, name: str, device: str, path=None):
+        """`path`: the head file (default: runs/<name>/head.pt of the scorer's output; the web app ships its own)."""
         import torch
 
         from .heads import ScoreHead
 
-        saved = torch.load(SCORER_DIR / "runs" / name / "head.pt", map_location="cpu", weights_only=False)
+        saved = torch.load(path or SCORER_DIR / "runs" / name / "head.pt", map_location="cpu", weights_only=False)
         self.name, self.cfg, self.device = name, saved["config"], device
         self.feature_mean = saved["feature_mean"].to(device)
         self.feature_std = saved["feature_std"].to(device)

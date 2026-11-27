@@ -24,6 +24,10 @@ class MIGAN(Editor):
     model_id = f"{URL} (md5 {MD5[:8]})"
     tasks = ("remove",)
     settings = {"size": SIZE, "crop_margin": MARGIN}
+    download_gb = 0.03
+
+    def fetch(self) -> None:
+        download(URL, SIZE_BYTES)
 
     def load(self, device: str) -> None:
         import hashlib

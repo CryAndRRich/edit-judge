@@ -9,8 +9,8 @@ requests>=2.32
 torch>=2.2
 # Real-ESRGAN x4plus is loaded with spandrel (../docs/editors.md, list 4): the one editing model that runs locally
 spandrel>=0.4
-# test client for tests/test_pipeline.py
+# test client (FastAPI TestClient)
 httpx>=0.27
 # Optional: ImageReward as the scorer on a laptop (EJ_WEB_SCORER=imagereward; about 1.8 GB of weights on first use)
 #   pip install "transformers>=4.56,<5" timm
-# EditReward (EJ_WEB_SCORER=editreward or auto on CUDA with >= 16 GB): see requirements/scorer.txt
+# EditReward (EJ_WEB_SCORER=editreward, CUDA with >= 16 GB): see requirements/scorer.txt

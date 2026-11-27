@@ -2,7 +2,8 @@
 
 Pages: GET / (the app: tabs Assistant, Rankings, Dataset), GET /docs (OpenAPI).
 API:
-- GET  /api/health                 status, scorer, device
+- GET  /api/health                 status, device, scorer, backend (real or mock) and, on the GPU server, what is
+                                   loaded and the free GPU memory
 - GET  /api/samples                sample photos (apps/web/dev_split)
 - POST /api/upload                 multipart file -> {image_id, url, ...}
 - POST /api/jobs                   {image_id | sample_id, instruction, task?} -> the job: the request read, the
@@ -40,6 +41,19 @@ async def lifespan(app: FastAPI):
         folder.mkdir(parents=True, exist_ok=True)
     app.state.jobs = Jobs()
     log.info("scorer: %s", app.state.jobs.scorer.info())
+    jobs = app.state.jobs
+    if jobs.live is not None:                     # the GPU server: load Qwen, the detectors and the scorer now
+        def warm():                               # Qwen, the detectors, the scorer, then the editors
+            from .assistant import downloadable_models
+            jobs.live.warm()
+            backend = jobs.scorer.backend
+            if backend is not None and hasattr(backend, "load"):
+                try:
+                    backend.load()
+                except Exception:
+                    log.exception("loading the scorer failed")
+            jobs.live.warm_editors(downloadable_models())
+        app.state.warming = asyncio.get_running_loop().run_in_executor(None, warm)
     yield
 
 
@@ -85,10 +99,15 @@ async def index(request: Request):
 
 @app.get("/api/health")
 async def health(request: Request):
-    import torch
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    except ImportError:
+        device = "cpu (no torch)"
+    jobs = request.app.state.jobs
     return {"status": "ok", "version": VERSION, "device": device, "models": len(MODELS), "samples": len(samples()),
-            "scorer": request.app.state.jobs.scorer.info()}
+            "scorer": jobs.scorer.info(), "backend": "real" if jobs.live is not None else "mock",
+            "live": jobs.live.info() if jobs.live is not None else None}
 
 
 @app.get("/api/samples")
@@ -113,8 +132,11 @@ async def get_job(job_id: str, request: Request):
 
 
 @app.get("/api/rankings")
-async def get_rankings():
-    return rankings_view()
+async def get_rankings(request: Request):
+    live_models = request.app.state.jobs.live
+    measured = {} if live_models is None else {
+        name: row["edit_s"] for name, row in live_models.editors.stats.rows.items() if row.get("edit_s")}
+    return rankings_view(measured)
 
 
 @app.get("/api/dataset")

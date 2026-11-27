@@ -290,6 +290,10 @@
       if (isDone(candidate) && bar.finishedAt === null) bar.finishedAt = performance.now();
     });
     if (changed) renderGrid();
+    // on the GPU server Qwen rewrites the request and the plan names the target: show what the models got
+    if (before && (before.understood.english !== job.understood.english || before.understood.target !== job.understood.target)) {
+      renderRouteBox(job.understood);
+    }
     updateOverall();
   }
 
@@ -327,7 +331,8 @@
     $("progress-bar").style.width = `${Math.min(100, 100 * doneTime / total)}%`;
     $("progress-count").textContent = `${finished} / ${all.length}`;
     const current = all.find((c) => c.status === "running");
-    $("progress-text").textContent = job.status === "waiting" ? "Waiting for another request" : current ? `Running ${current.name}` : "Starting";
+    $("progress-text").textContent = job.status === "waiting" ? "Waiting for another request"
+      : job.stage === "reading" ? "Reading the request" : current ? `Running ${current.name}` : "Starting";
   }
 
   // ---------------------------------------------------------------- big frame: the photo, or the slider

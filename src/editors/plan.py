@@ -219,6 +219,19 @@ def parse_plan(text: str, sample: dict, image_size: tuple[int, int], seen: tuple
             "seen": list(seen), "raw": text, "problems": problems}
 
 
+def plan_one(client, sample: dict, image_path, version: int) -> dict:
+    """The plan of one sample ({"id", "instruction", "request", "op"}) and its image file, asked alone (the web app
+    plans one request at a time); the same parsing and keep retry as `run`."""
+    from PIL import Image
+
+    with Image.open(image_path) as im:
+        size, seen = im.size, seen_size(client.processor, im.convert("RGB"))
+    row = parse_plan(client.generate(build_prompt(sample, version), image_path, MAX_TOKENS), sample, size, seen)
+    if needs_keep_retry(row):
+        row = keep_retry(client, sample, image_path, size, seen, row)
+    return row
+
+
 def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None, limit: int | None = None,
         device: str | None = None, allow_cpu: bool = False) -> dict:
     from PIL import Image

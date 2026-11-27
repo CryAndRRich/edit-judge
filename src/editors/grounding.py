@@ -254,6 +254,14 @@ def sample_mask(grounder, image, plan: dict, instruction: str = ""):
     return grounder.segment(image, boxes), boxes
 
 
+def final_mask(grounder, image, plan: dict, instruction: str = ""):
+    """(mask or None, boxes): `sample_mask` grown by the op's DILATE; None when nothing was found."""
+    mask, boxes = sample_mask(grounder, image, plan, instruction)
+    if mask is None or not mask.getbbox():
+        return None, boxes
+    return dilate(mask, DILATE[plan["op"]]), boxes
+
+
 def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None, limit: int | None = None,
         device: str | None = None, allow_cpu: bool = False) -> dict:
     from PIL import Image
@@ -282,13 +290,12 @@ def run(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = None
             grounder = Grounder()
             grounder.load(device)
             print(f"loaded Grounding DINO and SAM 2.1 on {device}", flush=True)
-        mask, boxes = sample_mask(grounder, image, plan, sample["instruction"])
+        mask, boxes = final_mask(grounder, image, plan, sample["instruction"])
         row = {"id": sample["id"], "op": plan["op"], "plan": prompt_id(version), "grounding": GROUNDING,
                "digest": None, "boxes": boxes}
-        if mask is None or not mask.getbbox():
+        if mask is None:
             row.update(status="no-mask", coverage=0.0)
         else:
-            mask = dilate(mask, DILATE[plan["op"]])
             mask_path(sample["id"]).parent.mkdir(parents=True, exist_ok=True)
             mask.save(mask_path(sample["id"]))
             row.update(status="ok", coverage=round(mask.histogram()[255] / (image.width * image.height), 4),

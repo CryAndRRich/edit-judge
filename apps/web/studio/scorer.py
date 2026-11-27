@@ -3,7 +3,12 @@
 Every candidate gets a **gain**: its score minus the score of the unedited input (the "do nothing" baseline).
 pipeline.py ranks the candidates by it.
 
-Backends (env EJ_WEB_SCORER = auto | editreward | imagereward | proxy):
+Backends (env EJ_WEB_SCORER = auto | mlp-siglip | editreward | imagereward | proxy):
+- mlp-siglip: our scorer, the run selected on dev (src/scorer, SigLIP so400m + a small MLP head, 56.7% test pair
+  accuracy). The head is committed: weights/mlp-siglip.pt of the repository (4.4 MB, a copy of
+  work/scorer/runs/mlp-siglip/head.pt of 2026-11-08: the 5 seed heads, the feature standardisation and the config;
+  no data). SigLIP's weights come from Hugging Face. Each edit gets the score of the benchmark (src/editors/score.py `head_scores`), shown as
+  exp(score) as in the Rankings tab. "auto" picks it on CUDA;
 - editreward: the repository's EditReward wrapper (src/scorer/rewards/editreward.py, Qwen2.5-VL-7B, ICLR 2026),
   scoring (original, instruction, edit). It needs about 16 GB of GPU memory, so "auto" picks it only on CUDA with
   enough memory and its package installed (requirements/scorer.txt);
@@ -35,6 +40,7 @@ from .router import Route
 log = logging.getLogger("studio.scorer")
 
 PROXY_LABEL = "Proxy score (heuristic)"
+HEAD = REPO_ROOT / "weights" / "mlp-siglip.pt"     # our scorer's head (mlp-siglip), committed
 GEOMETRY = {"crop", "rotate", "flip", "resize", "extend", "square"}
 LOOSE_FIDELITY = {"add", "replace", "replace_bg", "remove_bg", "colorize", "bw", "recolor", "blur_bg"}
 HUES = {"red": 0, "orange": 30, "yellow": 55, "green": 120, "cyan": 180, "blue": 220, "purple": 275,
@@ -386,6 +392,59 @@ class RewardModelScorer:
         return [score if score is not None and math.isfinite(score) else None for score in scores]
 
 
+class SiglipScorer:
+    """Our scorer mlp-siglip: the score of each edit on its own (the benchmark's scores, exp of the head's mean)."""
+    kind = "trained"
+    name = "mlp-siglip"
+    label = "Our scorer (mlp-siglip)"
+
+    def __init__(self):
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        if not HEAD.exists():
+            raise FileNotFoundError(f"{HEAD} is missing")
+        self.run = None
+        self.backbones = {}
+        self._lock = threading.Lock()
+
+    def load(self) -> None:
+        if self.run is not None:
+            return
+        from src.scorer.backbones import get_backbone
+        from src.scorer.latency import TrainedRun
+        run = TrainedRun(self.name, "cuda", HEAD)
+        backbones = {name: get_backbone(name) for name in run.cfg["backbones"]}
+        for backbone in backbones.values():
+            backbone.load("cuda")
+        self.run, self.backbones = run, backbones
+        log.info("scorer %s loaded on cuda", self.name)
+
+    def score(self, original: Image.Image, text: str, edits: list[Image.Image]) -> list[float | None]:
+        """The head's score of every edit (not exp'd), comparable within the request."""
+        import io
+
+        import torch
+
+        from src.editors.score import head_scores
+        from src.scorer.embed import square_image
+
+        def square(image: Image.Image):
+            buffer = io.BytesIO()
+            flatten(image).save(buffer, format="PNG")
+            buffer.seek(0)
+            return torch.from_numpy(square_image(buffer)).permute(2, 0, 1)
+
+        with self._lock:
+            self.load()
+            batch = torch.stack([square(image) for image in [original, *edits]]).to("cuda")
+            text = " ".join((text or "improve the photo").split())
+            encoded = {name: (backbone.encode_images(batch),
+                              backbone.encode_text_batch([text]) if backbone.has_text else None)
+                       for name, backbone in self.backbones.items()}
+            values = head_scores(self.run, encoded)
+        return [value if math.isfinite(value) else None for value in values]
+
+
 def cuda_memory_gb() -> float:
     try:
         import torch
@@ -406,12 +465,17 @@ class ImageScorer:
         self.fallback_reason = None
         wanted = self.mode
         if wanted == "auto":
-            wanted = "editreward" if cuda_memory_gb() >= 15 else "proxy"
+            wanted = "mlp-siglip" if cuda_memory_gb() > 0 else "proxy"
             if wanted == "proxy":
-                self.fallback_reason = ("EditReward (Qwen2.5-VL-7B) needs about 16 GB of CUDA memory; this machine "
-                                        "has none, so the proxy scores the edits. Set EJ_WEB_SCORER=imagereward "
-                                        "to use ImageReward here.")
-        if wanted in ("editreward", "imagereward"):
+                self.fallback_reason = ("our scorer runs on the GPU server (CUDA); here the proxy scores the edits. "
+                                        "Set EJ_WEB_SCORER=imagereward to use ImageReward on this machine.")
+        if wanted == "mlp-siglip":
+            try:
+                self.backend = SiglipScorer()
+            except BaseException as error:
+                self.fallback_reason = f"mlp-siglip unavailable ({type(error).__name__}: {error}); proxy used"
+                log.warning(self.fallback_reason)
+        elif wanted in ("editreward", "imagereward"):
             try:
                 self.backend = RewardModelScorer(wanted)
             except BaseException as error:       # SystemExit from the registry, ImportError, ...
@@ -425,9 +489,12 @@ class ImageScorer:
         return {"mode": self.mode, "backend": active.name, "label": active.label, "kind": active.kind,
                 "fallback_reason": self.fallback_reason}
 
-    def score_candidates(self, original: Image.Image, route: Route, candidates: list[dict]) -> list[dict]:
+    def score_candidates(self, original: Image.Image, route: Route, candidates: list[dict],
+                         text: str | None = None) -> list[dict]:
         """Adds `score` (gain over the unedited input, raw score, baseline) and `proxy` (breakdown) to every
-        candidate with an `image`; returns the candidates."""
+        candidate with an `image`; returns the candidates. `text`: the instruction the models got (default: the
+        request). mlp-siglip's gain is its score itself (baseline 0), so the page shows exp(score) as the
+        benchmark does."""
         original_features = measure(original)
         scored = [c for c in candidates if c.get("image") is not None]
         for candidate in scored:
@@ -435,7 +502,11 @@ class ImageScorer:
 
         if self.backend is not None:
             try:
-                values = self.backend.score(original, route.instruction, [original] + [c["image"] for c in scored])
+                text = text or route.instruction
+                if self.backend.kind == "trained":
+                    values = [0.0] + self.backend.score(original, text, [c["image"] for c in scored])
+                else:
+                    values = self.backend.score(original, text, [original] + [c["image"] for c in scored])
                 baseline, raw = values[0], values[1:]
                 for candidate, value in zip(scored, raw):
                     gain = None if value is None or baseline is None else round(value - baseline, 5)

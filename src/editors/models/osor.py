@@ -18,6 +18,7 @@ the runner's paste-back by our mask applies, as for every model.
 """
 
 from ..base import Editor
+from .fetch import pipeline_files
 
 BASE = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
 BASE_REVISION = "115134f363124c53c7d878647567d04daf26e41e"
@@ -50,6 +51,13 @@ class OSOR(Editor):
     tasks = ("remove",)
     settings = {"short_side": SHORT_SIDE, "steps": 1, "t": T, "lora_rank": RANK, "prompt": PROMPT,
                 "dtype": "float16"}
+    repos = (WEIGHTS,)          # the base's fp16 files are SDXL Inpainting's (sdxl_inpaint.py, its repos)
+    download_gb = 3.1           # the checkpoint
+
+    def fetch(self) -> None:
+        from huggingface_hub import hf_hub_download
+        pipeline_files(BASE, revision=BASE_REVISION, variant="fp16")
+        hf_hub_download(WEIGHTS, WEIGHTS_FILE, revision=WEIGHTS_REVISION)
 
     def load(self, device: str) -> None:
         import torch
@@ -62,13 +70,18 @@ class OSOR(Editor):
         self.torch, self.device = torch, device
         self.dtype = dtype = torch.float16 if device == "cuda" else torch.float32
         kw = {"revision": BASE_REVISION}
-        self.vae = AutoencoderKL.from_pretrained(BASE, subfolder="vae", torch_dtype=dtype, **kw).to(device).eval()
+        # the weights in half precision on the GPU: the base's fp16 files (the same values as the fp32 files cast to
+        # float16, and the files SDXL Inpainting downloads anyway: about 14 GB less on disk); fp32 on the CPU
+        weights_kw = {**kw, "variant": "fp16"} if dtype == torch.float16 else kw
+        self.vae = AutoencoderKL.from_pretrained(BASE, subfolder="vae", torch_dtype=dtype,
+                                                 **weights_kw).to(device).eval()
         self.scheduler = DDPMScheduler.from_pretrained(BASE, subfolder="scheduler", **kw)
 
         class Generator(nn.Module):                   # same module names as the authors' DiffGANGeneratorEnhance
             def __init__(self):
                 super().__init__()
-                self.unet = UNet2DConditionModel.from_pretrained(BASE, subfolder="unet", torch_dtype=dtype, **kw)
+                self.unet = UNet2DConditionModel.from_pretrained(BASE, subfolder="unet", torch_dtype=dtype,
+                                                                 **weights_kw)
                 self.unet.add_adapter(LoraConfig(r=RANK, lora_alpha=RANK, init_lora_weights="gaussian",
                                                  target_modules=LORA_MODULES))
                 old = self.unet.conv_out
@@ -94,7 +107,7 @@ class OSOR(Editor):
             for sub, model_class in (("", CLIPTextModel), ("_2", CLIPTextModelWithProjection)):
                 tokenizer = CLIPTokenizer.from_pretrained(BASE, subfolder=f"tokenizer{sub}", **kw)
                 encoder = model_class.from_pretrained(BASE, subfolder=f"text_encoder{sub}", torch_dtype=dtype,
-                                                      **kw).to(device)
+                                                      **weights_kw).to(device)
                 ids = tokenizer(PROMPT, padding="max_length", max_length=tokenizer.model_max_length,
                                 truncation=True, return_tensors="pt").input_ids.to(device)
                 output = encoder(ids, output_hidden_states=True)

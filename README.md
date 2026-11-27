@@ -37,6 +37,8 @@ src/                        Python package (run as `python -m src.<module>`)
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
 apps/web/                   EditJudge Studio, the assistant's web app (FastAPI); see "Web app"
 configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
+weights/                    trained weights the code needs: mlp-siglip.pt, our scorer's head (4.4 MB, a copy of
+                            work/scorer/runs/mlp-siglip/head.pt; the web app scores with it)
 notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*, editors_run,
                             ranking_review (built by python -m src.rank.review.notebook)
 data/                       local only, git-ignored: the final dataset (images/, pairs.jsonl); see "Data"
@@ -49,7 +51,7 @@ requirements/               dependencies, one file per use (each includes the on
   editors.txt               extra packages of the editing models (ml.txt +)
   web.txt                   the web app alone (mock models), e.g. on a laptop
   ranking.txt               the annotators' ranking app (shipped in its zip as requirements.txt)
-  server.txt                the GPU server of the live demo: editors.txt + web.txt (see "GPU server")
+  server.txt                the GPU server of the live demo: web.txt + the real models' packages (see "GPU server")
 .env.example                settings and secrets; copy to .env (git-ignored)
 ```
 
@@ -627,12 +629,13 @@ prototype of this design is `../docs/ui-prototype/edit-judge-studio.html`, outsi
 
 ### What is real and what is simulated
 
-| Part | On a laptop (now) | On the GPU server (next step) |
+| Part | On a laptop (mock backend) | On the GPU server (real backend, `studio/live.py`) |
 |---|---|---|
-| Reading the request | keyword router (`studio/router.py`, EN and VI); a Vietnamese request is sent unchanged | Qwen2.5-VL-7B (`src/editors/plan.py`): task, English instruction, target |
-| Model choice | real: `assistant.py` (rule below), from `data/rankings.json` | the same |
-| Editing models | plain code (PIL) and Real-ESRGAN (spandrel) run; the others are **mocks** that wait about as long as the real model takes | the `src/editors` wrappers |
-| Score | proxy heuristic (`scorer.py`), shown as exp(gain) | our scorer mlp-siglip (`work/scorer/runs/mlp-siglip/head.pt`), exp of its score |
+| Task and models | keyword router (`studio/router.py`, EN and VI) and `assistant.py` (rule below), from `data/rankings.json` | the same, so the page shows the models at once |
+| Instruction sent | the request (a Vietnamese one unchanged) | Qwen2.5-VL-7B rewrites the request as a short English instruction (`src/editors/prompts/request_v1.txt`) |
+| Region | none | remove, add_replace, change_color, formatting: Qwen's edit plan (`src/editors/plan.py`) and Grounding DINO + SAM 2.1 masks (`src/editors/grounding.py`), as in the benchmark |
+| Editing models | plain code (PIL) and Real-ESRGAN (spandrel) run; the others are **mocks** that wait about as long as the real model takes | the `src/editors` wrappers, with the benchmark's resize and paste-back (`base.edit_one`) |
+| Score | proxy heuristic (`scorer.py`), shown as exp(gain) | our scorer mlp-siglip, exp of its score, as in the Rankings tab |
 
 Every score is above 0 and higher is better.
 
@@ -670,7 +673,6 @@ Commands from the repository root:
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements/web.txt
-.venv/bin/python apps/web/fetch_dev_split.py    # 5 public sample photos (Picsum/Unsplash, COCO) into apps/web/dev_split/
 .venv/bin/python apps/web/run.py                # http://127.0.0.1:8000, API docs at /docs
 ```
 
@@ -681,7 +683,7 @@ server" below.
 |---|---|---|
 | `EJ_WEB_SPEEDUP` | `0.45` | T4 seconds times this = the expected seconds on this machine |
 | `EJ_WEB_MOCK_DELAY` | `1` | `0`: mocks return at once (no waiting) |
-| `EJ_WEB_SCORER` | `proxy` | `proxy`, `imagereward`, `editreward` (`scorer.py`; mlp-siglip comes with the server) |
+| `EJ_WEB_SCORER` | `auto` | the proxy here (`auto` without CUDA); `imagereward`, `editreward` (`scorer.py`) |
 | `EJ_WEB_REAL_MODELS` | `1` | `0` replaces Real-ESRGAN with a Lanczos mock (no torch needed) |
 | `EJ_WEB_ESRGAN_MAX_SIDE` | `512` | Real-ESRGAN input size; the output is 4 times larger |
 | `EJ_WEB_KEEP_RUNS` | `40` | job folders kept in `apps/web/studio/outputs/` |
@@ -692,16 +694,18 @@ server" below.
 ```
 apps/web/
   run.py                  starts uvicorn
-  fetch_dev_split.py      downloads the 5 sample photos
-  dev_split/              the sample photos (only manifest.json is committed)
+  fetch_dev_split.py      downloads the 5 sample photos again (they are committed)
+  download.py             GPU server: downloads the live demo's models (and nothing else)
+  dev_split/              the 5 sample photos and manifest.json (source, author, licence, task, request)
   studio/                 the app (Python package)
     main.py               FastAPI routes
     assistant.py          reading the request, picking the models, the Rankings view
     pipeline.py           uploads, samples, jobs (run one after another, score, rank)
     catalog.py            the live models (src/editors registry names), rankings.json and dataset.json
     router.py             keyword intents of a request (EN and VI) and parameters
-    model_runner.py       one handler per model: real (plain code, Real-ESRGAN) or mock
-    scorer.py             proxy score, ImageReward / EditReward wrappers
+    model_runner.py       one handler per model: real (plain code, Real-ESRGAN) or mock; the GPU server's path
+    live.py               GPU server: Qwen2.5-VL-7B, Grounding DINO + SAM 2.1, the src/editors wrappers (cached)
+    scorer.py             mlp-siglip (GPU server), proxy score, ImageReward / EditReward wrappers
     templates/index.html  the page: tabs Assistant, Rankings, Dataset
     static/css/app.css    Steven's design system (layout, components)
     static/css/assistant.css  the assistant's additions and the dark theme
@@ -737,31 +741,94 @@ task).
 
 ### GPU server
 
-One machine with a GPU that clones this repository, installs it, downloads every model ahead of time and serves
-the live demo. It needs one requirements file, `requirements/server.txt`; the others are records of the Kaggle
-stages. The four editors that pin their own packages (`install`: realesrgan, vosr, gfpgan, flux2-klein-4b) get a
-small environment on top of the main one (`src/common/envs.py`, the same as on Kaggle), built by `setup`:
+The live demo runs on one GPU machine: the web app and every model in one process and one conda environment,
+`imageedit`. **Server A** (`aiotlab-ws`, shared with other users; the folder is `haitn/`) is the one in use; server B
+is the backup and is set up with the same steps and its own paths.
+
+| | Server A |
+|---|---|
+| GPU | NVIDIA RTX PRO 5000 Blackwell, 48 GB, compute capability 12.0: needs a CUDA 12.8+ torch (here torch 2.14.1 cu130). Other users take a few GB and some of its time |
+| Code | `/mnt/disk1/aiotlab/haitn/edit-judge` (a clone of branch `curr`) |
+| Models, caches, outputs | inside the clone, in its git-ignored `work/`: `work/hf_cache/` (`HF_HOME`, set by `run.py` and `download.py` on the server), `work/models/` (`EJ_MODELS_DIR`). Deleting the clone removes everything |
+| Environment | conda env `imageedit` (`/mnt/disk1/miniconda3/envs/imageedit`; the env `imgedit` belongs to another app) |
+| Disk | about 71 GB of models (the 20 editors the assistant can run, Qwen2.5-VL-7B, Grounding DINO, SAM 2.1, SigLIP) and about 10 GB of environment |
+
+Only the models the assistant can pick are downloaded (`apps/web/download.py`; `studio/assistant.py`
+`downloadable_models`): FLUX.2 klein, InstructPix2Pix and Paint by Inpaint never run live, so they are left out.
+OSOR loads its SDXL base from the fp16 files SDXL Inpainting downloads anyway (14 GB less). Our scorer's head is
+committed (`weights/mlp-siglip.pt`, 4.4 MB); only SigLIP is downloaded for it.
+
+**Set up once** (no GPU used; installing takes about 10-15 min, the download about 30-60 min):
 
 ```bash
-git clone https://github.com/CryAndRRich/edit-judge.git && cd edit-judge
-python3 -m venv .venv && .venv/bin/pip install -r requirements/server.txt
-export EJ_MODELS_DIR=/data/models EJ_ENVS_DIR=/data/envs   # a large disk: about 80 GB of weights
-.venv/bin/python -m src.editors setup                      # environments and downloads of every editor (no GPU)
-.venv/bin/python apps/web/run.py --host 0.0.0.0             # the web app
+df -h /mnt/disk1                                # about 85 GB free are needed
+cd /mnt/disk1/aiotlab/haitn && git clone -b curr https://github.com/CryAndRRich/edit-judge.git && cd edit-judge
+conda create -n imageedit python=3.11 -y && conda activate imageedit
+export PIP_CACHE_DIR=/mnt/disk1/aiotlab/haitn/pip_cache
+pip install torch==2.14.1 torchvision --index-url https://download.pytorch.org/whl/cu130
+pip install -r requirements/server.txt
+pip install --no-deps gfpgan==1.3.8 facexlib==0.3.0
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+python apps/web/download.py --dry-run           # what will be downloaded, sizes and folders
+python apps/web/download.py                     # every model (resumes when run again)
+python apps/web/run.py --check                  # every editor once: time, GPU memory, status (about 15-30 min)
+python apps/web/run.py --precompute             # the 5 sample photos' requests answered ahead of time
 ```
 
-`setup --models a,b` prepares only some editors; it resumes, so a second run only checks what is there. The
-planner (Qwen2.5-VL-7B), Grounding DINO, SAM 2.1 and the scorer's SigLIP download into the Hugging Face cache on
-first use.
+`--check` loads every editor from disk, edits a sample photo, moves the editor to RAM and back and edits again:
+it measures the load times and the seconds per edit on this GPU, and keeps in RAM only the editors whose second
+edit matches the first (all in `work/web/editors.json`; `--check --models lama,osor` checks only some, details in
+`apps/web/studio/outputs/check.json`). `--precompute` runs the 5 sample photos' requests through the whole
+pipeline into the result cache, so on the demo they replay without loading a model. Run both again after a `git pull` that changes the models.
 
-### Next steps
+**Run the demo** (every time; inside tmux, so it keeps running after the SSH session closes):
 
-- Replace the mocks with the `src/editors` wrappers, one model at a time, keeping the models in RAM and moving one at
-  a time to the GPU (peak about 11.5 GB, `../docs/editors.md`).
-- Qwen2.5-VL-7B (4-bit) reads the request and writes the English instruction; Grounding DINO and SAM 2.1 make the
-  masks of remove, add_replace and change_color.
-- Score with mlp-siglip; check free GPU memory before each model.
-- Jobs are in memory: a restart loses the running ones.
+```bash
+tmux new -s studio            # later: tmux attach -t studio
+conda activate imageedit && cd /mnt/disk1/aiotlab/haitn/edit-judge && git pull
+python apps/web/run.py        # http://127.0.0.1:8000; ready for requests in about a minute, editors keep loading
+```
+
+The app listens on the server's own `127.0.0.1:8000`, which a browser on the laptop cannot reach by itself. With
+VS Code Remote-SSH the port is forwarded automatically: open the link it shows. From a plain terminal, connect
+with the port forwarded, then open `http://127.0.0.1:8000` on the laptop:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 user01@<server A>
+```
+
+`GET /api/health` says `"backend": "real"`, the scorer (`mlp-siglip`), what is loaded and the free GPU memory.
+
+**What makes it fast** (`studio/live.py`):
+- At start-up Qwen2.5-VL-7B (bfloat16, about 16 GB), Grounding DINO and SAM 2.1 (about 2 GB) and SigLIP load and
+  stay, then every editor `--check` found safe is loaded too (`GET /api/health`: `loading`). A request that comes
+  in meanwhile waits for one load at most.
+- Three tiers for the editors: the GPU (at most `EJ_WEB_EDITORS_GB`, least recently used first; also when the GPU,
+  shared with other users, runs short), then RAM (at most `EJ_WEB_RAM_GB`: back on the GPU in a few seconds), then
+  disk (a load of 5-30 s). An editor `--check` did not clear for RAM is dropped instead.
+- Results are cached on disk (`work/web/results/`): the same photo with the same request is read by Qwen, masked
+  and edited once. The next time no model loads or runs: the progress bars run as long as the first run took, then
+  the saved edits and scores show (also after a restart). An output is reused only for the same editor settings
+  and the same scorer. Every request is cached, uploads too.
+- The 5 sample images (`apps/web/dev_split/`, committed; public photos from Picsum/Unsplash and COCO, no people)
+  have one request each, one per task: remove (two cats, "Xoa cai dieu khien TV khoi anh" in Vietnamese),
+  add_replace (walrus, a Santa hat), change_color (fjord, the sky orange, Vietnamese), enhance (dark lioness,
+  brighter and sharper, Vietnamese) and formatting (pug, remove the background). `--precompute` (or the first click on each) fills the cache; after that they replay.
+- The progress bars and the Rankings tab use the seconds measured on this GPU (`--check`, then every run), with
+  the load time when the editor is not on the GPU; before any measurement, the benchmark's T4 seconds times
+  `EJ_WEB_SPEEDUP`.
+- The editors are checked before they load (does it apply to the request, is there a region), so nothing loads
+  for an edit that cannot run. TF32 speeds up the fp32 models. One request runs at a time; another waits.
+
+| Variable (server) | Default | Meaning |
+|---|---|---|
+| `EJ_WEB_BACKEND` | `auto` | `real` on CUDA, `mock` elsewhere; force one with `real` or `mock` |
+| `EJ_WEB_SCORER` | `auto` | `mlp-siglip` on CUDA, else the proxy |
+| `EJ_WEB_EDITORS_GB` | `24` | GPU memory the editors may hold |
+| `EJ_WEB_RAM_GB` | `40` | RAM the editors moved off the GPU may hold (the server has 125 GB, shared) |
+| `EJ_WEB_CACHE_RESULTS` | `1` | `0`: run every request again (no result cache) |
+| `EJ_WEB_SPEEDUP` | `0.45` | T4 seconds times this = the expected seconds before an editor was measured here |
 
 ## Data rules
 

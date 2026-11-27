@@ -34,6 +34,10 @@ class Lama(Editor):
     model_id = URL
     tasks = ("remove",)
     settings = {"size": "original", "pad_modulo": MODULO}
+    download_gb = 0.21
+
+    def fetch(self) -> None:
+        download(URL, SIZE_BYTES)
 
     def load(self, device: str) -> None:
         import torch

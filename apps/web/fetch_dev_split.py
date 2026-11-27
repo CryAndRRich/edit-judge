@@ -1,13 +1,15 @@
-"""Downloads a few real public photos into apps/web/dev_split/ for smoke runs of the web app (apps/web/studio/) and its scorer.
+"""Downloads the 5 sample photos of the web app (apps/web/studio/) into apps/web/dev_split/.
 
 No image is generated: every photo is a real photograph from a public source.
 - Lorem Picsum (https://picsum.photos): photos from Unsplash, under the Unsplash License; the author and the
   Unsplash page come from the Picsum info endpoint.
 - COCO val2017 (https://cocodataset.org): Flickr photos under the Creative Commons licenses listed by COCO.
 
-Each sample also gets an instruction, so the pipeline can be run end to end. dev_split/manifest.json records the
-source, author, license and instruction of every photo. The photos themselves are git-ignored (re-download them
-with this script).
+Each sample also gets a request, one per task (remove, add_replace, change_color, enhance, formatting), so the
+pipeline can be run end to end; the GPU server answers them ahead of time (run.py --precompute) and keeps the answers
+in its result cache, so on the demo the sample images show their edits at once. dev_split/manifest.json records the
+source, author, license, task and request of every photo. The photos are committed (public, no people); this
+script is needed only to download them again (--force) or after changing SAMPLES.
 
 Usage: python apps/web/fetch_dev_split.py [--force]
 """
@@ -26,13 +28,17 @@ OUT = Path(__file__).resolve().parent / "dev_split"
 HEADERS = {"User-Agent": "edit-judge-dev-split/1.0"}
 MAX_SIDE = 1024
 
-SAMPLES = [
-    {"id": "picsum-1015", "kind": "picsum", "picsum_id": 1015, "instruction": "Make the photo brighter and more vivid"},
-    {"id": "picsum-1025", "kind": "picsum", "picsum_id": 1025, "instruction": "Remove the background"},
-    {"id": "picsum-1084", "kind": "picsum", "picsum_id": 1084, "instruction": "Làm nét ảnh và tăng độ phân giải"},
-    {"id": "picsum-1074", "kind": "picsum", "picsum_id": 1074, "instruction": "Convert to black and white"},
-    {"id": "coco-000000039769", "kind": "coco", "coco_file": "000000039769.jpg",
+SAMPLES = [                 # one photo per task (5 of the 7; no people), the sample images of the page in this order
+    {"id": "coco-000000039769", "kind": "coco", "coco_file": "000000039769.jpg", "task": "remove",
      "instruction": "Xóa cái điều khiển TV khỏi ảnh"},
+    {"id": "picsum-1084", "kind": "picsum", "picsum_id": 1084, "task": "add_replace",
+     "instruction": "Add a red Santa hat on the walrus on the right"},
+    {"id": "picsum-1015", "kind": "picsum", "picsum_id": 1015, "task": "change_color",
+     "instruction": "Đổi màu bầu trời thành màu cam như hoàng hôn"},
+    {"id": "picsum-1074", "kind": "picsum", "picsum_id": 1074, "task": "enhance",
+     "instruction": "Làm ảnh sáng hơn và rõ nét hơn"},
+    {"id": "picsum-1025", "kind": "picsum", "picsum_id": 1025, "task": "formatting",
+     "instruction": "Remove the background"},
 ]
 
 
@@ -75,14 +81,14 @@ def main() -> int:
     manifest = []
     for sample in SAMPLES:
         path = OUT / f"{sample['id']}.jpg"
-        entry = {"id": sample["id"], "file": path.name, "instruction": sample["instruction"]}
+        entry = {"id": sample["id"], "file": path.name, "task": sample["task"], "instruction": sample["instruction"]}
         old = {}
         manifest_path = OUT / "manifest.json"
         if manifest_path.exists():
             old = {row["id"]: row for row in json.loads(manifest_path.read_text())}
         if path.exists() and not args.force and sample["id"] in old:
             print(f"keep {path.name}")
-            manifest.append({**old[sample["id"]], "instruction": sample["instruction"]})
+            manifest.append({**old[sample["id"]], "task": sample["task"], "instruction": sample["instruction"]})
             continue
         print(f"download {sample['id']} ...", flush=True)
         try:

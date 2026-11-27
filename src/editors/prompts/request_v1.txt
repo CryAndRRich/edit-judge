@@ -1,0 +1,12 @@
+A user posted this photo with an edit request. The request may be in English or Vietnamese and may be informal.
+
+Request: "$request"
+
+Rewrite the request as one short English instruction for an image editing model: an imperative sentence that says
+what to change in this photo ("Remove the man on the left.", "Make the sky blue.", "Add a hat to the dog."). Keep
+every detail the user gave (which thing, colours, sizes, directions), name things as they look in the photo, and
+leave out greetings, thanks and explanations. Answer with one JSON object:
+
+{"instruction": "..."}
+
+Answer with the JSON object only.

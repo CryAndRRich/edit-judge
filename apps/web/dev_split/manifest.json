@@ -1,15 +1,55 @@
 [
  {
+  "id": "coco-000000039769",
+  "file": "coco-000000039769.jpg",
+  "instruction": "Xóa cái điều khiển TV khỏi ảnh",
+  "url": "http://images.cocodataset.org/val2017/000000039769.jpg",
+  "source": "COCO val2017",
+  "author": null,
+  "page": "https://cocodataset.org",
+  "license": "Creative Commons (per-image license in the COCO annotations)",
+  "width": 640,
+  "height": 480,
+  "task": "remove"
+ },
+ {
+  "id": "picsum-1084",
+  "file": "picsum-1084.jpg",
+  "instruction": "Add a red Santa hat on the walrus on the right",
+  "url": "https://picsum.photos/id/1084/1024/731.jpg",
+  "source": "Lorem Picsum (Unsplash)",
+  "author": "Jay Ruzesky",
+  "page": "https://unsplash.com/photos/h13Y8vyIXNU",
+  "license": "Unsplash License (https://unsplash.com/license)",
+  "width": 1024,
+  "height": 731,
+  "task": "add_replace"
+ },
+ {
   "id": "picsum-1015",
   "file": "picsum-1015.jpg",
-  "instruction": "Make the photo brighter and more vivid",
+  "instruction": "Đổi màu bầu trời thành màu cam như hoàng hôn",
   "url": "https://picsum.photos/id/1015/1024/683.jpg",
   "source": "Lorem Picsum (Unsplash)",
   "author": "Alexey Topolyanskiy",
   "page": "https://unsplash.com/photos/-oWyJoSqBRM",
   "license": "Unsplash License (https://unsplash.com/license)",
   "width": 1024,
-  "height": 683
+  "height": 683,
+  "task": "change_color"
+ },
+ {
+  "id": "picsum-1074",
+  "file": "picsum-1074.jpg",
+  "instruction": "Làm ảnh sáng hơn và rõ nét hơn",
+  "url": "https://picsum.photos/id/1074/1024/683.jpg",
+  "source": "Lorem Picsum (Unsplash)",
+  "author": "Samuel Scrimshaw",
+  "page": "https://unsplash.com/photos/sseiVD2XsOk",
+  "license": "Unsplash License (https://unsplash.com/license)",
+  "width": 1024,
+  "height": 683,
+  "task": "enhance"
  },
  {
   "id": "picsum-1025",
@@ -21,42 +61,7 @@
   "page": "https://unsplash.com/photos/U5rMrSI7Pn4",
   "license": "Unsplash License (https://unsplash.com/license)",
   "width": 1024,
-  "height": 683
- },
- {
-  "id": "picsum-1084",
-  "file": "picsum-1084.jpg",
-  "instruction": "Làm nét ảnh và tăng độ phân giải",
-  "url": "https://picsum.photos/id/1084/1024/731.jpg",
-  "source": "Lorem Picsum (Unsplash)",
-  "author": "Jay Ruzesky",
-  "page": "https://unsplash.com/photos/h13Y8vyIXNU",
-  "license": "Unsplash License (https://unsplash.com/license)",
-  "width": 1024,
-  "height": 731
- },
- {
-  "id": "picsum-1074",
-  "file": "picsum-1074.jpg",
-  "instruction": "Convert to black and white",
-  "url": "https://picsum.photos/id/1074/1024/683.jpg",
-  "source": "Lorem Picsum (Unsplash)",
-  "author": "Samuel Scrimshaw",
-  "page": "https://unsplash.com/photos/sseiVD2XsOk",
-  "license": "Unsplash License (https://unsplash.com/license)",
-  "width": 1024,
-  "height": 683
- },
- {
-  "id": "coco-000000039769",
-  "file": "coco-000000039769.jpg",
-  "instruction": "Xóa cái điều khiển TV khỏi ảnh",
-  "url": "http://images.cocodataset.org/val2017/000000039769.jpg",
-  "source": "COCO val2017",
-  "author": null,
-  "page": "https://cocodataset.org",
-  "license": "Creative Commons (per-image license in the COCO annotations)",
-  "width": 640,
-  "height": 480
+  "height": 683,
+  "task": "formatting"
  }
 ]

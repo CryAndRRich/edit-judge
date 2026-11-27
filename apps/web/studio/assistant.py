@@ -1,18 +1,20 @@
 """Reads a request and picks the models that edit it (../docs/editors.md, "Live demo selection").
 
 understand(instruction) -> the task (one of the 7 benchmark tasks), the operations the request needs, the English
-instruction sent to the models and the target to find. On the GPU server Qwen2.5-VL reads the request (src/editors
-plan.py); here the keyword router (router.py, English and Vietnamese) stands in for it, so a Vietnamese request is
-sent unchanged until Qwen writes the English instruction.
+instruction sent to the models and the target to find, from the keyword router (router.py, English and Vietnamese),
+so the page shows the task and the models at once. On the GPU server Qwen2.5-VL-7B then rewrites the instruction in
+English and plans the region (live.py); on a laptop a Vietnamese request is sent unchanged.
 
 pick_models(task, operations) -> the live models of the task, best mean score first, that apply to the request (a
 model limited to one operation, such as EraseDraw to Add, runs only when the request has it): 6 when 6 apply, else
 3, else all of them (Open-ended has 2). They run one after another, fastest first.
 """
 
+import itertools
 import os
 import re
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 
 from .catalog import MODELS_BY_ID, NOT_LIVE, TASKS, model_name, rankings
 from .router import ROUTER, strip_diacritics
@@ -136,23 +138,34 @@ def pick_models(task: str, operations: list[str] | set[str]) -> list[dict]:
             for row in fits[:count_for(len(fits))]]
 
 
-def live_models(task: str) -> set[str]:
-    """Models some request of the task can reach: no special operation, or one of the task's operations."""
-    scopes = {scope_of(row["model"], task) for row in live_rows(task)} - {None}
+@lru_cache(maxsize=None)
+def live_models(task: str) -> frozenset[str]:
+    """Models some request of the task can reach: every combination of the task's special operations."""
+    scopes = sorted({scope_of(row["model"], task) for row in live_rows(task)} - {None})
     live = set()
-    for ops in [set()] + [{scope} for scope in scopes]:
-        live.update(row["model"] for row in pick_models(task, ops))
-    return live
+    for size in range(len(scopes) + 1):
+        for ops in itertools.combinations(scopes, size):
+            live.update(row["model"] for row in pick_models(task, ops))
+    return frozenset(live)
 
 
-def rankings_view() -> dict:
+def downloadable_models() -> list[str]:
+    """Every editor the assistant can run (the GPU server downloads only these: apps/web/download.py)."""
+    return sorted(set().union(*(live_models(task) for task in TASKS)))
+
+
+def rankings_view(measured: dict[str, float] | None = None) -> dict:
     """The Rankings tab: every benchmarked model per task, with its place, whether the assistant runs it, its mean
-    seconds per image on the benchmark GPU (`seconds`) and the estimate on the live GPU (`estimate`)."""
+    seconds per image on the benchmark GPU (`seconds`) and on the live GPU (`estimate`: `measured` there, the GPU
+    server's own seconds per edit, else the benchmark's times SPEEDUP)."""
+    measured = measured or {}
     tasks = []
     for task, label in TASKS.items():
         live = live_models(task)
         rows = [{"place": index + 1, "model": row["model"], "name": model_name(row["model"]), "score": row["score"],
-                 "seconds": row["seconds"], "estimate": round(row["seconds"] * SPEEDUP, 2), "live": row["model"] in live}
+                 "seconds": row["seconds"], "measured": row["model"] in measured,
+                 "estimate": measured.get(row["model"]) or round(row["seconds"] * SPEEDUP, 2),
+                 "live": row["model"] in live}
                 for index, row in enumerate(rankings()["tasks"][task])]
         tasks.append({"task": task, "label": label, "rows": rows})
     return {"tasks": tasks, "samples_per_task": rankings()["samples_per_task"], "gpu": rankings()["gpu"],

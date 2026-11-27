@@ -613,9 +613,24 @@ class RunResult:
 
 
 class ModelRunner:
-    def run_one(self, model_id: str, image: Image.Image, route: Route, estimate: float = 0.0) -> RunResult:
-        """`estimate`: seconds the real model takes on the server; a mock waits about that long (MOCK_DELAY)."""
+    """Runs one candidate: the real model on the GPU server (`live`, live.py) or a mock here."""
+
+    def __init__(self, live=None):
+        self.live = live
+
+    def run_one(self, model_id: str, image: Image.Image, route: Route, estimate: float = 0.0,
+                context=None) -> RunResult:
+        """`estimate`: seconds the real model takes on the server; a mock waits about that long (MOCK_DELAY).
+        `context`: the request as the real models need it (live.EditContext), on the GPU server."""
         started = time.perf_counter()
+        if self.live is not None and context is not None:
+            try:
+                output = self.live.edit(model_id, image.convert("RGB"), context)
+                return RunResult(model_id, "ok", "real", (time.perf_counter() - started) * 1000, output)
+            except Exception as error:      # one model failing must not stop the others
+                log.exception("model %s failed", model_id)
+                return RunResult(model_id, "failed", "real", (time.perf_counter() - started) * 1000,
+                                 error=f"{type(error).__name__}: {error}"[:300])
         try:
             model = make_model(model_id)
         except KeyError:

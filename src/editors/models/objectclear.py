@@ -40,11 +40,26 @@ def repository_code():
     return folder
 
 
+def weights(fp16: bool) -> str:
+    """The weights folder at REVISION. The loader downloads the repository itself but takes no revision: it is
+    pinned here, with the loader's own filter (only the weights of one precision), and the local folder handed
+    to it."""
+    from huggingface_hub import snapshot_download
+    return snapshot_download(MODEL, revision=REVISION, ignore_patterns=(
+        ["*model.safetensors", "*model.bin"] if fp16 else ["*.fp16.safetensors", "*.fp16.bin"]))
+
+
 class ObjectClear(Editor):
     name = "objectclear"
     model_id = f"{MODEL}@{REVISION[:7]} (code {COMMIT[:7]})"
     tasks = ("remove",)
     settings = {"short_side": SHORT_SIDE, "steps": 20, "guidance": 2.5, "agf": True, "prompt": PROMPT}
+    repos = (MODEL,)
+    download_gb = 7.8
+
+    def fetch(self) -> None:
+        repository_code()
+        weights(fp16=True)                            # the GPU loads the fp16 files
 
     def load(self, device: str) -> None:
         import torch
@@ -54,15 +69,9 @@ class ObjectClear(Editor):
         from objectclear.utils import resize_by_short_side
 
         self.torch, self.device, self.resize = torch, device, resize_by_short_side
-        from huggingface_hub import snapshot_download
-
         fp16 = device == "cuda"
-        # the loader downloads the repository itself but takes no revision: pin it here, with the loader's own
-        # filter (only the weights of one precision), and hand it the local folder
-        weights = snapshot_download(MODEL, revision=REVISION, ignore_patterns=(
-            ["*model.safetensors", "*model.bin"] if fp16 else ["*.fp16.safetensors", "*.fp16.bin"]))
         self.pipe = ObjectClearPipeline.from_pretrained_with_custom_modules(
-            weights, torch_dtype=torch.float16 if fp16 else torch.float32, apply_attention_guided_fusion=True,
+            weights(fp16), torch_dtype=torch.float16 if fp16 else torch.float32, apply_attention_guided_fusion=True,
             variant="fp16" if fp16 else None)
         self.pipe.to(device)
         self.pipe.set_progress_bar_config(disable=True)

@@ -7,8 +7,11 @@ Storage (git-ignored, local only):
 - apps/web/studio/outputs/<job id>/: original.jpg (the input at the working size), <model>.jpg|png,
   <model>.thumb.webp, result.json. Only the newest KEEP_RUNS jobs are kept.
 
-Score: the proxy heuristic of scorer.py until the GPU server runs our scorer (mlp-siglip); shown as exp(gain), so it
-is above 0 and higher is better, as mlp-siglip's scores are.
+On the GPU server (live.py, CUDA) the job first reads the request with Qwen2.5-VL-7B and plans and masks the edit
+(the job's "stage": reading, then nothing), then the real editors run; on a laptop the mocks of model_runner.py run.
+
+Score: our scorer mlp-siglip on the GPU server, the proxy heuristic of scorer.py on a laptop (EJ_WEB_SCORER);
+shown as exp(gain), so it is above 0 and higher is better.
 """
 
 import asyncio
@@ -26,6 +29,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from . import live
 from .assistant import pick_models, understand
 from .catalog import WEB_DIR
 from .model_runner import WORK_MAX_SIDE, ModelRunner, limit_size
@@ -153,9 +157,12 @@ class Jobs:
     MAX_JOBS = 200
 
     def __init__(self, scorer: ImageScorer | None = None, runner: ModelRunner | None = None):
-        # the proxy until the GPU server runs our scorer; EJ_WEB_SCORER=imagereward|editreward still works
-        self.scorer = scorer or ImageScorer(os.environ.get("EJ_WEB_SCORER", "proxy"))
-        self.runner = runner or ModelRunner()
+        # auto: mlp-siglip on the GPU server, the proxy elsewhere; EJ_WEB_SCORER=imagereward|editreward still work
+        self.live = (runner.live if runner is not None else
+                     live.LiveModels() if live.use_real() else None)
+        self.scorer = scorer or ImageScorer(os.environ.get("EJ_WEB_SCORER", "auto"))
+        self.runner = runner or ModelRunner(self.live)
+        self.results = live.ResultCache() if self.live is not None and live.CACHE_RESULTS else None
         self.jobs: dict[str, dict] = {}
         self.tasks: set[asyncio.Task] = set()
         self.gpu = asyncio.Lock()               # one job on the models at a time: the server has one GPU for them
@@ -164,13 +171,16 @@ class Jobs:
         path, source_url = resolve_image(image_id, sample_id)          # 404 now rather than in the background
         understood = understand(instruction, task)
         picked = pick_models(understood.task, understood.operations)
+        if self.live is not None:                   # the times measured on this GPU, once there are some
+            for row in picked:
+                row["estimate"] = self.live.estimate(row["model"]) or row["estimate"]
         job_id = uuid.uuid4().hex
         job = {"job_id": job_id, "status": "waiting", "understood": understood.to_dict(),
                "original": {"source_url": source_url, "image_id": image_id, "sample_id": sample_id},
                "candidates": [{"model": row["model"], "name": row["name"], "benchmark": row["score"],
                                "estimate": row["estimate"], "status": "queued", "started": None, "elapsed": None}
                               for row in sorted(picked, key=lambda row: row["estimate"])],      # fastest first
-               "scorer": self.scorer.info(), "error": None, "created": time.time(),
+               "scorer": self.scorer.info(), "stage": None, "error": None, "created": time.time(),
                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
         self.jobs[job_id] = job
         self._trim()
@@ -194,8 +204,29 @@ class Jobs:
             route = ROUTER.route(understood.english)
             async with self.gpu:
                 job["status"] = "running"
+                context = key = None
+                if self.live is not None:
+                    job["stage"] = "reading"
+                    if self.results is not None:
+                        key = live.ResultCache.key(folder / "original.jpg", understood.instruction, understood.task)
+                        context = await asyncio.to_thread(self.results.load_context, key)
+                        if context is not None:     # answered before: replay the reading as long as it took
+                            await asyncio.sleep(sum(context.seconds.values()))
+                    if context is None:
+                        try:
+                            context = await asyncio.to_thread(self.live.prepare, folder / "original.jpg", original,
+                                                              understood)
+                            if key:
+                                await asyncio.to_thread(self.results.save_context, key, context)
+                        except Exception:       # the editors without a region can still run on the request
+                            log.exception("job %s: reading the request failed", job["job_id"])
+                            context = live.EditContext(instruction=understood.english,
+                                                       op=live.sample_op(understood.task, understood.operations))
+                    job["understood"].update(english=context.instruction, target=context.target(),
+                                             prepare_seconds=context.seconds)
+                    job["stage"] = None
                 for candidate in job["candidates"]:
-                    await self._run(job, candidate, original, route, folder)
+                    await self._run(job, candidate, original, route, folder, context, key)
             self._rank(job, final=True)
             job["status"] = "done"
             (folder / "result.json").write_text(json.dumps(self.public(job), ensure_ascii=False, indent=1))
@@ -207,19 +238,40 @@ class Jobs:
             log.exception("job %s failed", job["job_id"])
             job["status"], job["error"] = "error", f"{type(error).__name__}: {error}"
 
-    async def _run(self, job: dict, candidate: dict, original, route, folder: Path) -> None:
+    async def _run(self, job: dict, candidate: dict, original, route, folder: Path, context=None,
+                   key: str | None = None) -> None:
+        """One model: its output from the result cache when this request was answered before, else a run and a
+        score (then cached)."""
         candidate["status"], candidate["started"] = "running", time.time()
-        result = await asyncio.to_thread(self.runner.run_one, candidate["model"], original, route,
-                                         candidate["estimate"])
-        candidate.update(seconds=round(result.elapsed_ms / 1000, 2), backend=result.backend, error=result.error)
-        if result.image is not None:
-            name, thumb, transparent = await asyncio.to_thread(save_output, result.image, folder, candidate["model"])
-            scored = {"image": result.image}
-            await asyncio.to_thread(self.scorer.score_candidates, original, route, [scored])
+        model = candidate["model"]
+        tag = live.output_tag(model, self.scorer.info()["backend"]) if key else None
+        cached = await asyncio.to_thread(self.results.load_output, key, model, tag) if key else None
+        if cached is not None:                       # answered before: no model runs, the bar runs as long as the
+            image, meta = cached                     # model took, then the cached edit shows
+            candidate.update(estimate=meta["seconds"], cached=True)
+            await asyncio.sleep(meta["seconds"])
+            candidate.update(seconds=meta["seconds"], backend="real", error=None)
+            score = meta["score"]
+        else:
+            result = await asyncio.to_thread(self.runner.run_one, model, original, route, candidate["estimate"],
+                                             context)
+            candidate.update(seconds=round(result.elapsed_ms / 1000, 2), backend=result.backend,
+                             error=result.error)
+            image, score = (result.image if result.status == "ok" else None), None
+            if image is not None:
+                scored = {"image": image}
+                await asyncio.to_thread(self.scorer.score_candidates, original, route, [scored],
+                                        context.instruction if context else None)
+                score = display_score(scored)
+                if key and score is not None:
+                    await asyncio.to_thread(self.results.save_output, key, model, tag, image,
+                                            {"seconds": candidate["seconds"], "score": score})
+        if image is not None:
+            name, thumb, transparent = await asyncio.to_thread(save_output, image, folder, model)
             candidate.update(image_url=f"/media/outputs/{job['job_id']}/{name}",
-                             thumb_url=f"/media/outputs/{job['job_id']}/{thumb}", width=result.image.width,
-                             height=result.image.height, transparent=transparent, score=display_score(scored))
-        candidate["status"] = "ok" if result.status == "ok" and candidate.get("score") is not None else "failed"
+                             thumb_url=f"/media/outputs/{job['job_id']}/{thumb}", width=image.width,
+                             height=image.height, transparent=transparent, score=score)
+        candidate["status"] = "ok" if image is not None and candidate.get("score") is not None else "failed"
         self._rank(job)
 
     @staticmethod

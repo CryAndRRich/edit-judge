@@ -133,6 +133,21 @@ def paste_back(original, edited, mask):
     return Image.composite(edited, original, soft)
 
 
+def edit_one(editor: Editor, image, mask, prompt: str, seed: int = SEED):
+    """(output, status) of one edit, as the benchmark makes it: the editor's output resized back to the original
+    size (unless `keep_size` is off), judged "black" or "ok" on the model's own output, then pasted back into the
+    original for a mask model. The caller sets `editor.op` and `editor.plan` first. Shared with the web app."""
+    from PIL import Image
+
+    edited = editor.edit(image, mask, prompt, seed).convert("RGB")
+    if editor.keep_size and edited.size != image.size:
+        edited = edited.resize(image.size, Image.Resampling.LANCZOS)
+    status = "black" if is_black(edited) else "ok"     # judged on the model's own output
+    if PASTE_BACK and editor.uses_mask and editor.keep_size:
+        edited = paste_back(image, edited, mask)
+    return edited, status
+
+
 def gpu_peak():
     from ..scorer.latency import gpu_peak_gb, reset_gpu_peak
     return reset_gpu_peak, gpu_peak_gb
@@ -209,7 +224,7 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
         reset_peak()
         started = time.perf_counter()
         try:
-            edited = editor.edit(image, mask, prompt, SEED).convert("RGB")
+            edited, status = edit_one(editor, image, mask, prompt)
         except Exception as error:                    # one bad sample must not stop the run
             seconds = round(time.perf_counter() - started, 2)
             record(sample, "failed", seconds, peak_gb(), f"{type(error).__name__}: {error}"[:500])
@@ -220,11 +235,6 @@ def run(editor: Editor, task: str, limit: int | None = None, device: str | None 
                 torch.cuda.empty_cache()
             continue
         seconds = round(time.perf_counter() - started, 2)
-        if editor.keep_size and edited.size != image.size:
-            edited = edited.resize(image.size, Image.Resampling.LANCZOS)
-        status = "black" if is_black(edited) else "ok"     # judged on the model's own output
-        if PASTE_BACK and editor.uses_mask and editor.keep_size:
-            edited = paste_back(image, edited, mask)
         output_path(editor.name, sample["id"]).parent.mkdir(parents=True, exist_ok=True)
         edited.save(output_path(editor.name, sample["id"]))
         record(sample, status, seconds, peak_gb())
