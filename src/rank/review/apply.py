@@ -1,7 +1,6 @@
 """Write new pair labels without touching the read-only Kaggle images or the original labels."""
 
 import json
-from collections import defaultdict
 from pathlib import Path
 
 from ...common.io import iter_jsonl, write_json, write_jsonl

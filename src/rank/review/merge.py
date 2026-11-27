@@ -1,7 +1,6 @@
 """Validate independent reviews, accept agreement and require explicit third-person adjudication."""
 
 import itertools
-import json
 from collections import defaultdict
 from pathlib import Path
 

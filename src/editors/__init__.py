@@ -1,4 +1,4 @@
-"""Editing models and their benchmark (PROJECT.md Part II Step 7, MODEL_LIST.md, all 7 lists).
+"""Editing models and their benchmark (PROJECT.md Part II Step 7, ../docs/editors.md, all 7 lists).
 
 Each task has a small fixed set of dev samples; every model of its list runs on them, and the generalists of
 list 1 run on every task. A run has these steps, each resumable and each writing to work/editors/:
@@ -20,7 +20,7 @@ Register each editor as name -> "module:Class" (module relative to this package)
 editor is used, so torch loads only then. To add one, subclass base.Editor in its own file in models/ and register
 it here.
 
-Dropped on 2026-11-24 for latency (the assistant edits live; MODEL_LIST.md "Left out"): InstantIR, OmniGen2, VIBE,
+Dropped on 2026-11-24 for latency (the assistant edits live; ../docs/editors.md "Left out"): InstantIR, OmniGen2, VIBE,
 FLUX 3 Image Klein; VAREdit 2B on 2026-11-26.
 """
 

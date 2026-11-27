@@ -35,6 +35,7 @@ LEDGER = INDEX_DIR / "ledger.jsonl"           # every build decision (kept / rej
 RANKING_DIR = WORK_DIR / "ranking"            # ranking versions (manifest, assignments, results, labels)
 RANKING_DIST = RANKING_DIR / "dist"           # zip files handed out to annotators
 RANKING_APP = REPO_ROOT / "apps" / "ranking"  # the standalone app annotators run
+RANKING_REQUIREMENTS = REPO_ROOT / "requirements" / "ranking.txt"   # shipped in the app zip as requirements.txt
 
 # Later stages: results of each task
 FILTERS_DIR = OUTPUT_DIR / "filters"          # detector scores and decisions: filters/<task>/<model>.jsonl

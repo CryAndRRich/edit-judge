@@ -1,15 +1,15 @@
-"""FastAPI application of the AI Image Editing Benchmark & Auto-Selection web app.
+"""FastAPI application of EditJudge Studio, the live photo-editing assistant.
 
-Pages: GET / (the app), GET /docs (OpenAPI).
+Pages: GET / (the app: tabs Assistant, Rankings, Dataset), GET /docs (OpenAPI).
 API:
-- GET  /api/health                 status, scorer backend, device
-- GET  /api/models                 the 23 candidates and 7 categories
-- GET  /api/samples                dev_split photos with their instructions
-- POST /api/route                  {instruction} -> categories, intents, models (live preview)
+- GET  /api/health                 status, scorer, device
+- GET  /api/samples                sample photos (apps/web/dev_split)
 - POST /api/upload                 multipart file -> {image_id, url, ...}
-- POST /api/process                {image_id | sample_id, instruction, models?} -> ranked candidates (synchronous)
-- POST /api/jobs, GET /api/jobs/{job_id}   the same as a background job with per-model progress
-- GET  /api/runs/{run_id}          a finished run (shareable)
+- POST /api/jobs                   {image_id | sample_id, instruction, task?} -> the job: the request read, the
+                                   models picked (fastest first), each queued
+- GET  /api/jobs/{job_id}          the job: per-model status, elapsed seconds, output and score as they come
+- GET  /api/rankings               the benchmark per task (../docs/editors.md, scored run) and which models run live
+- GET  /api/dataset                the figures of the Dataset tab (data/dataset.json) and the model count
 Media: /media/uploads, /media/outputs, /media/samples; static files: /static.
 """
 
@@ -24,31 +24,28 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .catalog import CATEGORIES, MODELS
-from .pipeline import (MAX_UPLOAD_BYTES, OUTPUT_DIR, SAMPLES_DIR, UPLOAD_DIR, WEB_ROOT, Jobs, Pipeline,
-                       PipelineError, load_run, samples, save_upload)
-from .router import ROUTER
-from .schemas import (JobCreated, JobStatus, ProcessRequest, ProcessResponse, RouteRequest, UploadResponse)
+from .assistant import rankings_view
+from .catalog import MODELS, dataset_stats
+from .pipeline import (MAX_UPLOAD_BYTES, OUTPUT_DIR, SAMPLES_DIR, UPLOAD_DIR, WEB_ROOT, Jobs, PipelineError, samples,
+                       save_upload)
+from .schemas import JobRequest, UploadResponse
 
-log = logging.getLogger("web_app")
-VERSION = "1.0.0"
+log = logging.getLogger("studio")
+VERSION = "2.0.0"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     for folder in (UPLOAD_DIR, OUTPUT_DIR):
         folder.mkdir(parents=True, exist_ok=True)
-    app.state.pipeline = Pipeline()
-    app.state.jobs = Jobs(app.state.pipeline)
-    log.info("scorer: %s", app.state.pipeline.scorer.info())
-    warmup = asyncio.create_task(asyncio.to_thread(app.state.pipeline.scorer.warmup))   # reward model, if any
+    app.state.jobs = Jobs()
+    log.info("scorer: %s", app.state.jobs.scorer.info())
     yield
-    warmup.cancel()
 
 
-app = FastAPI(title="Edit-Judge Studio", version=VERSION, lifespan=lifespan,
-              description="Routes an editing instruction to candidate models, runs them, scores every edit "
-                          "against the unedited input and picks the best.")
+app = FastAPI(title="EditJudge Studio", version=VERSION, lifespan=lifespan,
+              description="Reads an editing request, runs the best-ranked models of its task one after another, "
+                          "and scores every edit.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,33 +80,20 @@ async def unexpected_error(request: Request, error: Exception):
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"version": VERSION,
-                                                              "scorer": request.app.state.pipeline.scorer.info()})
+    return templates.TemplateResponse(request, "index.html", {"version": VERSION})
 
 
 @app.get("/api/health")
 async def health(request: Request):
     import torch
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    return {"status": "ok", "version": VERSION, "device": device, "models": len(MODELS),
-            "samples": len(samples()), "scorer": request.app.state.pipeline.scorer.info()}
-
-
-@app.get("/api/models")
-async def models():
-    return {"categories": [{"id": key, **value, "models": [m.id for m in MODELS if key in m.categories]}
-                           for key, value in CATEGORIES.items()],
-            "models": [model.to_dict() for model in MODELS]}
+    return {"status": "ok", "version": VERSION, "device": device, "models": len(MODELS), "samples": len(samples()),
+            "scorer": request.app.state.jobs.scorer.info()}
 
 
 @app.get("/api/samples")
 async def list_samples():
     return {"samples": samples()}
-
-
-@app.post("/api/route")
-async def route(body: RouteRequest):
-    return ROUTER.route(body.instruction).to_dict()
 
 
 @app.post("/api/upload", response_model=UploadResponse)
@@ -118,21 +102,21 @@ async def upload(file: UploadFile = File(...)):
     return await asyncio.to_thread(save_upload, data, file.filename)
 
 
-@app.post("/api/process", response_model=ProcessResponse)
-async def process(body: ProcessRequest, request: Request):
-    return await request.app.state.pipeline.process(body.image_id, body.sample_id, body.instruction, body.models)
+@app.post("/api/jobs", status_code=202)
+async def create_job(body: JobRequest, request: Request):
+    return request.app.state.jobs.create(body.image_id, body.sample_id, body.instruction, body.task)
 
 
-@app.post("/api/jobs", response_model=JobCreated, status_code=202)
-async def create_job(body: ProcessRequest, request: Request):
-    return request.app.state.jobs.create(body.image_id, body.sample_id, body.instruction, body.models)
-
-
-@app.get("/api/jobs/{job_id}", response_model=JobStatus)
+@app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str, request: Request):
     return request.app.state.jobs.get(job_id)
 
 
-@app.get("/api/runs/{run_id}", response_model=ProcessResponse)
-async def get_run(run_id: str):
-    return load_run(run_id)
+@app.get("/api/rankings")
+async def get_rankings():
+    return rankings_view()
+
+
+@app.get("/api/dataset")
+async def get_dataset():
+    return dataset_stats()

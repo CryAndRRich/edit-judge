@@ -21,7 +21,8 @@ background is resized with cv2 bilinear and the faces pasted at that scale; the 
 release files are downloaded into EJ_MODELS_DIR with a size check instead of the repository's `weights/` folder;
 a failing face is an error of the sample (the script keeps the unrestored face). The helper itself scales images whose
 short side is below 512 up to 512 (bilinear); the runner resizes the output back. A photo without a detected face
-comes back unchanged (apart from that resizing). No prompt; deterministic.
+comes back unchanged (apart from that resizing). The pasted result is clipped to 0-255 as uint8: the helper
+returns uint16 when a blended pixel goes above 256, which PIL cannot save. No prompt; deterministic.
 """
 
 import sys
@@ -122,4 +123,6 @@ class CodeFormer(Editor):
             helper.add_restored_face(restored, cropped_face)
         helper.get_inverse_affine(None)
         result = helper.paste_faces_to_input_image(upsample_img=None, draw_box=False)
+        # the helper returns uint16 when a blended pixel goes above 256 (sample 6db168dba581, 2026-11-26)
+        result = np.clip(result, 0, 255).astype(np.uint8)
         return Image.fromarray(np.ascontiguousarray(result[:, :, ::-1]))

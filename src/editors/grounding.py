@@ -1,4 +1,4 @@
-"""Masks for the inpainting models (MODEL_LIST.md, "Grounding").
+"""Masks for the inpainting models (../docs/editors.md, "Grounding").
 
 For each target of the plan (remove, replace: what goes; background: the subjects that stay), two detectors agree
 on its boxes:

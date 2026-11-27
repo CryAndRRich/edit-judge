@@ -1,4 +1,4 @@
-"""Downloads a few real public photos into apps/web/dev_split/ for smoke runs of the web app (apps/web/web_app/) and its scorer.
+"""Downloads a few real public photos into apps/web/dev_split/ for smoke runs of the web app (apps/web/studio/) and its scorer.
 
 No image is generated: every photo is a real photograph from a public source.
 - Lorem Picsum (https://picsum.photos): photos from Unsplash, under the Unsplash License; the author and the

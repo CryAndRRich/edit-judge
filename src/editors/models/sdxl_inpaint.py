@@ -5,7 +5,7 @@
 long side at 1,024 px and both sides a multiple of 8, so it is not distorted. The prompt is the plan's description
 of what to paint (plan.py): for Add the mask is the plan's box, for Replace the segmented object. The VAE runs in
 fp16 (its config has `force_upcast: false`, as RORem's and ObjectClear's): if it overflows (black or NaN images,
-MODEL_LIST.md), the runner records them as "black"; the fix is then to load madebyollin/sdxl-vae-fp16-fix.
+../docs/editors.md), the runner records them as "black"; the fix is then to load madebyollin/sdxl-vae-fp16-fix.
 
 Settings version 2: strength 1.0 for the background op. At 0.99 the masked background keeps a trace of the original
 (the run of 2026-11-21: the sky stayed sky, no mushroom cloud was painted); a new background must not depend on
@@ -94,7 +94,7 @@ def extended_canvas(image, direction: str, scale: float):
 
 
 class SDXLOutpaint(SDXLInpaint):
-    """Outpainting with SDXL Inpainting 0.1 (MODEL_LIST.md list 7: our own padding, the card does not document this
+    """Outpainting with SDXL Inpainting 0.1 (../docs/editors.md list 7: our own padding, the card does not document this
     use): the canvas grows by the plan's scale (EXTEND_SCALE when it gives none, at most MAX_EXTEND_SCALE) in the
     plan's direction, the new border (and OVERLAP px of the seam) is painted from the plan's prompt (the whole scene)
     at strength 1.0, and the original pixels are put back where they were. The output keeps the new size."""

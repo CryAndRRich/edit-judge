@@ -38,8 +38,8 @@ runs.jsonl
 
 # Web app (apps/web/): uploads, run outputs and downloaded weights stay local; dev_split photos are re-downloaded
 # with apps/web/fetch_dev_split.py (only its manifest is committed)
-apps/web/web_app/uploads/
-apps/web/web_app/outputs/
-apps/web/web_app/.cache/
+apps/web/studio/uploads/
+apps/web/studio/outputs/
+apps/web/studio/.cache/
 apps/web/dev_split/*.jpg
 apps/web/dev_split/*.png

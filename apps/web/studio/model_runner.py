@@ -3,23 +3,22 @@
 Two kinds of handler share one interface (`EditingModel.edit(image, route) -> PIL image`):
 - real models: Real-ESRGAN x4plus (spandrel, on Apple MPS, CUDA or the CPU; weights downloaded once) and plain PIL
   code (crop, resize, rotate, flip, greyscale);
-- mock models: a Pillow/numpy simulation of what each model does (MODEL_LIST.md), with a per-model profile (edit
+- mock models: a Pillow/numpy simulation of what each model does (../docs/editors.md), with a per-model profile (edit
   strength, softness, colour drift), so the pipeline, the scorer and the UI can be built before the weights run.
   To wire in a real model, subclass EditingModel, implement `edit`, and register it in `HANDLERS`.
 
-`ModelRunner.run_models` runs the models concurrently in threads (torch models one at a time behind a lock),
-measures each run, and never lets one failure stop the others.
+`ModelRunner.run_one` runs one model and measures it; a failure is returned, never raised. The assistant runs the
+models one after another (pipeline.py). A mock waits about as long as the real model takes on the server
+(`estimate`, from the T4 benchmark), so the progress bars behave as they will there; EJ_WEB_MOCK_DELAY=0 turns the
+wait off.
 """
 
-import asyncio
 import hashlib
 import logging
 import os
 import threading
 import time
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -28,13 +27,14 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 from .catalog import MODELS_BY_ID, WEB_DIR
 from .router import Route
 
-log = logging.getLogger("web_app.models")
+log = logging.getLogger("studio.models")
 
 WORK_MAX_SIDE = 1024                      # mocks work at most at this size
-CACHE_DIR = Path(os.environ.get("EJ_WEB_CACHE") or WEB_DIR / "web_app" / ".cache")
+CACHE_DIR = Path(os.environ.get("EJ_WEB_CACHE") or WEB_DIR / "studio" / ".cache")
 ESRGAN_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
 ESRGAN_MAX_SIDE = int(os.environ.get("EJ_WEB_ESRGAN_MAX_SIDE", "512"))   # x4 output: 2048 px at most
 REAL_MODELS_ENABLED = os.environ.get("EJ_WEB_REAL_MODELS", "1") != "0"
+MOCK_DELAY = os.environ.get("EJ_WEB_MOCK_DELAY", "1") != "0"
 
 HUES = {"red": 0, "orange": 30, "yellow": 55, "green": 120, "cyan": 180, "blue": 220, "purple": 275,
         "magenta": 300, "pink": 330, "brown": 25}
@@ -366,8 +366,6 @@ class EditingModel:
     def edit(self, image: Image.Image, route: Route) -> Image.Image:
         raise NotImplementedError
 
-    def note(self, route: Route) -> str | None:
-        return None
 
 
 @dataclass(frozen=True)
@@ -379,14 +377,8 @@ class Profile:
 
 
 GENERALIST_PROFILES = {
-    "flux3_klein": Profile(strength=1.05, softness=0.05),
-    "varedit_2b": Profile(strength=0.9, softness=0.25, work_side=512),
-    "flux2_klein_4b": Profile(strength=0.95, softness=0.12, drift=0.03),
-    "vibe": Profile(strength=0.9, softness=0.15, drift=0.04),
-    "omnigen2": Profile(strength=1.0, softness=0.1, drift=0.06),
     "realedit": Profile(strength=0.85, softness=0.3, drift=0.05, work_side=512),
     "magicbrush": Profile(strength=0.7, softness=0.35, drift=0.1, work_side=512),
-    "instructpix2pix": Profile(strength=0.8, softness=0.35, drift=0.16, work_side=512),
 }
 
 
@@ -411,23 +403,20 @@ class GeneralistMock(EditingModel):
         return out
 
 
+REMOVAL_PROFILES = {"objectclear": (0.2, 22), "osor": (0.19, 20), "rorem": (0.18, 26), "lama": (0.16, 18),
+                    "migan": (0.15, 16)}      # (mask size as a share of the image, inpainting radius)
+
+
 class RemovalMock(EditingModel):
-    """ObjectClear, RORem, LaMa: inpaint the region a mask would select (here: the most detailed window)."""
+    """ObjectClear, OSOR, RORem, LaMa, MI-GAN: inpaint the region a mask would select (here: the most detailed
+    window)."""
     def edit(self, image, route):
-        if "remove_bg" in route.intents and "remove_object" not in route.intents:
-            # the background is the region to inpaint: a plain studio-like backdrop behind the subject
-            backdrop = Image.new("RGB", image.size, {"objectclear": (242, 242, 240), "rorem": (236, 236, 236),
-                                                     "lama": (225, 222, 218)}[self.model_id])
-            return composite(image, foreground_mask(image), backdrop)
-        box = detail_region(image, {"objectclear": 0.2, "rorem": 0.18, "lama": 0.16}[self.model_id])
-        out = inpaint(image, ellipse_mask(image.size, box), radius={"objectclear": 22, "rorem": 26, "lama": 18}[
-            self.model_id])
-        if self.model_id == "rorem":
+        fraction, radius = REMOVAL_PROFILES[self.model_id]
+        out = inpaint(image, ellipse_mask(image.size, detail_region(image, fraction)), radius=radius)
+        if self.model_id in ("rorem", "osor"):
             out = blend(out, out.filter(ImageFilter.GaussianBlur(0.8)), 0.25)       # SDXL VAE round trip at 512
         return out
 
-    def note(self, route):
-        return "Mask from the most detailed region (Grounding DINO + SAM 2.1 not wired in yet)"
 
 
 class CutoutMock(EditingModel):
@@ -442,9 +431,10 @@ class CutoutMock(EditingModel):
 
 
 class SDXLInpaintMock(EditingModel):
+    """SDXL Inpainting (add, replace, recolour one region) and SDXL Outpainting (extend)."""
     def edit(self, image, route):
         work = limit_size(image, 1024)
-        if "extend" in route.intents:
+        if self.model_id == "sdxl-outpaint" or "extend" in route.intents:
             return outpaint(work)
         if "recolor" in route.intents:
             return recolor(work, route.params.get("target_color", "red"), foreground_mask(work), 0.9)
@@ -452,8 +442,6 @@ class SDXLInpaintMock(EditingModel):
                                                              if k in ("add", "replace", "replace_bg")}
                                          or {"replace": ["edit"]}, {}, route.params), 1.0)
 
-    def note(self, route):
-        return "Masked inpainting simulated on the salient region"
 
 
 class EnhanceMock(EditingModel):
@@ -467,7 +455,7 @@ class EnhanceMock(EditingModel):
                 out = out.resize((image.width * 2, image.height * 2), Image.LANCZOS).filter(
                     ImageFilter.UnsharpMask(radius=2, percent=80, threshold=2))
             return out
-        if mid == "hvi_cidnet":                  # low-light: lifts the shadows strongly
+        if mid == "hvi-cidnet":                  # low-light: lifts the shadows strongly
             out = gamma(image, 0.62)
             return ImageEnhance.Contrast(out).enhance(1.08)
         if mid == "instructir":                  # the degradation named in the instruction
@@ -487,18 +475,20 @@ class EnhanceMock(EditingModel):
 class RestoreMock(EditingModel):
     def edit(self, image, route):
         mid = self.model_id
-        if mid == "instantir":
-            out = image.filter(ImageFilter.MedianFilter(3))
-            out = ImageOps.autocontrast(out, cutoff=1)
-            out = ImageEnhance.Color(out).enhance(1.15)
-            return out.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
         # CodeFormer, GFPGAN: face restorers; mostly sharpen + smooth skin (whole image, no detector here)
         smooth = image.filter(ImageFilter.SMOOTH_MORE)
         sharp = smooth.filter(ImageFilter.UnsharpMask(radius=2, percent=110 if mid == "gfpgan" else 90, threshold=2))
         return blend(image, sharp, 0.85 if mid == "codeformer" else 1.0)
 
-    def note(self, route):
-        return "Face detection not simulated: applied to the whole photo" if self.model_id != "instantir" else None
+
+
+class AddMock(EditingModel):
+    """EraseDraw, Paint by Inpaint: mask-free addition, simulated like a generalist that only adds."""
+    def edit(self, image, route):
+        work = limit_size(image, 512)
+        add = {k: v for k, v in route.intents.items() if k == "add"} or {"add": ["object"]}
+        out = apply_intents(work, Route(route.instruction, add, {}, route.params), 0.9)
+        return out.resize(image.size, Image.BICUBIC)
 
 
 class DDColorMock(EditingModel):
@@ -519,7 +509,7 @@ class PlainCode(EditingModel):
 
 
 class RealESRGAN(EditingModel):
-    """Real-ESRGAN x4plus, loaded with spandrel (MODEL_LIST.md). The input is limited to ESRGAN_MAX_SIDE."""
+    """Real-ESRGAN x4plus, loaded with spandrel (../docs/editors.md). The input is limited to ESRGAN_MAX_SIDE."""
     backend = "real"
     max_side = ESRGAN_MAX_SIDE
     _model = None
@@ -578,20 +568,19 @@ class RealESRGAN(EditingModel):
                 torch.cuda.empty_cache()
         return to_image(array)
 
-    def note(self, route):
-        return f"Runs locally on {self._device or 'the first request'}; input limited to {self.max_side} px"
 
 
 HANDLERS: dict[str, type[EditingModel]] = {
     **{model_id: GeneralistMock for model_id in GENERALIST_PROFILES},
-    "objectclear": RemovalMock, "rorem": RemovalMock, "lama": RemovalMock,
-    "sdxl_inpaint": SDXLInpaintMock,
-    "vosr": EnhanceMock, "hvi_cidnet": EnhanceMock, "instructir": EnhanceMock,
+    **{model_id: RemovalMock for model_id in REMOVAL_PROFILES},
+    "sdxl-inpaint": SDXLInpaintMock, "sdxl-outpaint": SDXLInpaintMock,
+    "erasedraw": AddMock, "paint-by-inpaint": AddMock,
+    "vosr": EnhanceMock, "hvi-cidnet": EnhanceMock, "instructir": EnhanceMock,
     "realesrgan": RealESRGAN,
-    "instantir": RestoreMock, "codeformer": RestoreMock, "gfpgan": RestoreMock,
+    "codeformer": RestoreMock, "gfpgan": RestoreMock,
     "ddcolor": DDColorMock,
     "ben2": CutoutMock, "birefnet": CutoutMock,
-    "pil_plain": PlainCode,
+    "plain-code": PlainCode,
 }
 
 
@@ -621,17 +610,11 @@ class RunResult:
     elapsed_ms: float
     image: Image.Image | None = None
     error: str | None = None
-    note: str | None = None
-    input_size: tuple[int, int] | None = None
-    extra: dict = field(default_factory=dict)
 
 
 class ModelRunner:
-    def __init__(self, concurrency: int = 4):
-        # a thread pool, not an asyncio.Semaphore: it is not bound to one event loop
-        self.pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="model")
-
-    def run_one(self, model_id: str, image: Image.Image, route: Route) -> RunResult:
+    def run_one(self, model_id: str, image: Image.Image, route: Route, estimate: float = 0.0) -> RunResult:
+        """`estimate`: seconds the real model takes on the server; a mock waits about that long (MOCK_DELAY)."""
         started = time.perf_counter()
         try:
             model = make_model(model_id)
@@ -640,34 +623,17 @@ class ModelRunner:
         try:
             work = limit_size(image.convert("RGB"), model.max_side)
             output = model.edit(work, route)
+            if model.backend == "mock" and MOCK_DELAY and estimate:
+                seed = int(hashlib.md5((model_id + route.instruction).encode()).hexdigest()[:8], 16)
+                wait = estimate * (0.6 + 0.7 * (seed % 1000) / 1000) - (time.perf_counter() - started)
+                if wait > 0:
+                    time.sleep(wait)
             if output is None or output.width < 1 or output.height < 1:
                 raise ValueError("the model returned an empty image")
             if output.mode not in ("RGB", "RGBA"):
                 output = output.convert("RGB")
-            return RunResult(model_id, "ok", model.backend, (time.perf_counter() - started) * 1000, output,
-                             note=model.note(route), input_size=work.size)
+            return RunResult(model_id, "ok", model.backend, (time.perf_counter() - started) * 1000, output)
         except Exception as error:      # one model failing must not stop the others
             log.exception("model %s failed", model_id)
             return RunResult(model_id, "failed", model.backend, (time.perf_counter() - started) * 1000,
                              error=f"{type(error).__name__}: {error}"[:300])
-
-    async def run_models(self, image: Image.Image, route: Route, model_ids: list[str],
-                         progress: Callable[[str, str], None] | None = None) -> list[RunResult]:
-        # decode once, before the threads: a lazily loaded PIL image read by several threads at once breaks
-        image = image.convert("RGB")
-        image.load()
-
-        loop = asyncio.get_running_loop()
-
-        def job(model_id: str) -> RunResult:
-            if progress:
-                progress(model_id, "running")
-            result = self.run_one(model_id, image, route)
-            if progress:
-                progress(model_id, result.status)
-            return result
-
-        async def one(model_id: str) -> RunResult:
-            return await loop.run_in_executor(self.pool, job, model_id)
-
-        return list(await asyncio.gather(*(one(model_id) for model_id in model_ids)))

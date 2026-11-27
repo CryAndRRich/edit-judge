@@ -11,7 +11,6 @@ session is split between sessions (team members) that run side by side.
 import importlib
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 

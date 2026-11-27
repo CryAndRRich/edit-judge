@@ -6,7 +6,7 @@ import random
 import zipfile
 from collections import Counter, defaultdict
 
-from ...paths import FINAL_PAIRS, RANKING_APP, SAMPLES_DIR
+from ...paths import FINAL_PAIRS, RANKING_APP, RANKING_REQUIREMENTS, SAMPLES_DIR
 from .common import dataset, digest, fingerprint, frozen_json, identity, round_dir, selected
 
 
@@ -84,7 +84,8 @@ def make_chunks(number: int, reviewers: list[str], chunk_size: int = 25, seed: i
                 archive.write(source, target)
     with zipfile.ZipFile(distribution / "ranking_app_review.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         for name in ("app.py", "requirements.txt", "run_mac.command", "run_windows.bat"):
-            archive.write(RANKING_APP / name, f"ranking_app/{name}")
+            source = RANKING_REQUIREMENTS if name == "requirements.txt" else RANKING_APP / name
+            archive.write(source, f"ranking_app/{name}")
         archive.writestr("ranking_app/README.txt", "Put your assigned chunk ZIPs in chunks/. Run run_windows.bat "
                          "or run_mac.command. Enter the assigned reviewer name. Return results/*.json to the "
                          "coordinator. Judge request fulfillment, naturalness, then preservation. Keep photos private.")

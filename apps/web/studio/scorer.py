@@ -1,7 +1,7 @@
-"""Scores and ranks the candidate edits of one request.
+"""Scores the candidate edits of one request.
 
-Every candidate gets a **gain**: its score minus the score of the unedited input (the "do nothing" baseline), as in
-the Enhance benchmark (reports/enhance/stats.md). The winner is the candidate with the highest gain.
+Every candidate gets a **gain**: its score minus the score of the unedited input (the "do nothing" baseline).
+pipeline.py ranks the candidates by it.
 
 Backends (env EJ_WEB_SCORER = auto | editreward | imagereward | proxy):
 - editreward: the repository's EditReward wrapper (src/scorer/rewards/editreward.py, Qwen2.5-VL-7B, ICLR 2026),
@@ -12,7 +12,7 @@ Backends (env EJ_WEB_SCORER = auto | editreward | imagereward | proxy):
 - proxy: a transparent heuristic on numpy, used when no reward model can run here. It is NOT EditReward: it
   combines instruction alignment (did the asked change happen: brighter, sharper, background gone, rotated...),
   image quality change (exposure, contrast, sharpness, colourfulness, noise, clipping) and fidelity (content
-  kept). The UI says which backend scored the edits.
+  kept). GET /api/health says which backend scores the edits.
 
 A reward backend that fails to load falls back to the proxy, and the reason is reported. The proxy breakdown is
 computed for every candidate in every mode, as a diagnostic.
@@ -32,7 +32,7 @@ from PIL import Image, ImageFilter, ImageOps
 from .catalog import REPO_ROOT
 from .router import Route
 
-log = logging.getLogger("web_app.scorer")
+log = logging.getLogger("studio.scorer")
 
 PROXY_LABEL = "Proxy score (heuristic)"
 GEOMETRY = {"crop", "rotate", "flip", "resize", "extend", "square"}
@@ -420,22 +420,6 @@ class ImageScorer:
         elif wanted != "proxy":
             self.fallback_reason = f"unknown scorer {wanted!r}; proxy used"
 
-    def warmup(self) -> None:
-        """Load the reward model now (server start, in a thread), so the first request does not wait for it; a
-        model that cannot load is replaced by the proxy at once, with the reason."""
-        backend = self.backend
-        if backend is None:
-            return
-        try:
-            with backend._lock:
-                backend.load()
-        except BaseException as error:
-            if isinstance(error, KeyboardInterrupt):
-                raise
-            self.fallback_reason = f"{backend.name} could not load ({type(error).__name__}: {error}); proxy used"
-            log.warning(self.fallback_reason)
-            self.backend = None
-
     def info(self) -> dict:
         active = self.backend or self.proxy
         return {"mode": self.mode, "backend": active.name, "label": active.label, "kind": active.kind,
@@ -469,24 +453,3 @@ class ImageScorer:
             value = candidate["proxy"]["score"]
             candidate["score"] = {"gain": value, "raw": value, "baseline": 0.0, "scorer": "proxy"}
         return candidates
-
-
-def rank_candidates(candidates: list[dict]) -> tuple[dict | None, list[dict]]:
-    """(best candidate, all candidates sorted best first). Ties: the faster model first. Failed or unscored
-    candidates come last, unranked."""
-    def key(candidate):
-        gain = (candidate.get("score") or {}).get("gain")
-        valid = gain is not None and math.isfinite(gain)
-        return (0 if valid else 1, -(gain if valid else 0.0), candidate.get("elapsed_ms") or 0.0)
-
-    ranked = sorted(candidates, key=key)
-    position = 0
-    for candidate in ranked:
-        gain = (candidate.get("score") or {}).get("gain")
-        if gain is not None and math.isfinite(gain):
-            position += 1
-            candidate["rank"] = position
-        else:
-            candidate["rank"] = None
-    best = ranked[0] if ranked and ranked[0]["rank"] == 1 else None
-    return best, ranked

@@ -5,6 +5,7 @@ of a request, comparable only within that request. For every sample of the task,
 and every model output with status ok are encoded once by the run's backbones (padded to a square, as in
 training), and every edit gets the run's score: the features of scorer/train.py:backbone_blocks, standardised, then
 the mean of the seed heads (as scorer/latency.py:TrainedRun.score, which handles two edits; here any number).
+The reported score is exp of that mean: always above 0, higher is better, the same order (since 2026-11-26).
 
 Caveat: the scorer learned from human (Photoshop) edits; AI outputs are another domain, so its scores are a first
 opinion to be checked by eye on the contact sheets of report.py, not a verdict.
@@ -12,6 +13,8 @@ opinion to be checked by eye on the contact sheets of report.py, not a verdict.
 Output: work/editors/<task>/scores.jsonl, one row per edit: {"id", "edit" ("human:<key>" or "model:<name>"),
 "score", "top_human" (the key of the best human edit in the final ranking)}.
 """
+
+import math
 
 import numpy as np
 
@@ -102,7 +105,7 @@ def score(task: str, run_name: str = DEFAULT_RUN, device: str | None = None, all
                           backbone.encode_text_batch([text]) if backbone.has_text else None)
                    for name, backbone in backbones.items()}
         for (edit, _), value in zip(edits, head_scores(run, encoded)):
-            rows.append({"id": sample["id"], "edit": edit, "score": round(float(value), 4), "top_human": best})
+            rows.append({"id": sample["id"], "edit": edit, "score": round(math.exp(value), 4), "top_human": best})
     write_jsonl(scores_path(task), rows)
     return {"task": task, "run": run_name, "samples": len({r["id"] for r in rows}), "edits": len(rows),
             "model_outputs": sum(r["edit"].startswith("model:") for r in rows)}

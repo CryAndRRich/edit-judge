@@ -1,6 +1,6 @@
 """Mask-free instruction editors: InstructPix2Pix-style models (SD 1.5, `StableDiffusionInstructPix2PixPipeline`,
 fp16, no safety checker) that get the image and the simplified instruction alone and decide where to edit.
-`InstructEdit` is the shared base (every task and op, the generalists of MODEL_LIST.md list 1); `InstructAdd`
+`InstructEdit` is the shared base (every task and op, the generalists of ../docs/editors.md list 1); `InstructAdd`
 limits it to the add samples (models trained to add objects, which place the new thing themselves: our VLM places
 new things badly, list 3).
 

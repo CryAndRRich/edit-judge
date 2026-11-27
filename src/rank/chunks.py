@@ -23,7 +23,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..paths import RANKING_APP as APP, RANKING_DIR, RANKING_DIST as DIST, SAMPLES_DIR, SAMPLES_JSONL
+from ..paths import (RANKING_APP as APP, RANKING_DIR, RANKING_DIST as DIST, RANKING_REQUIREMENTS, SAMPLES_DIR,
+                     SAMPLES_JSONL)
 
 
 def load_samples() -> list[dict]:
@@ -197,7 +198,7 @@ def zip_app(_args) -> None:
         info.external_attr = 0o644 << 16
         zf.writestr(info, ANNOTATOR_README.replace("\n", "\r\n"))   # readable in Notepad too
         for name in ("app.py", "requirements.txt", "run_mac.command", "run_windows.bat"):
-            data = (APP / name).read_bytes()
+            data = (RANKING_REQUIREMENTS if name == "requirements.txt" else APP / name).read_bytes()
             if name.endswith(".bat"):
                 data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")   # Windows line endings
             info = zipfile.ZipInfo(f"ranking_app/{name}", date_time=time.localtime()[:6])

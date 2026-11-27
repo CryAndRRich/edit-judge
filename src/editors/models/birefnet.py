@@ -1,5 +1,5 @@
-"""BiRefNet (Zheng et al., CAAI AIR 2024; MIT), the background remover of MODEL_LIST.md list 7: a bilateral reference
-network (Swin-L backbone) that predicts a high-resolution foreground matte of the main subject.
+"""BiRefNet (Zheng et al., CAAI AIR 2024; MIT), the background remover of ../docs/editors.md list 7: a bilateral
+reference network (Swin-L backbone) that predicts a high-resolution foreground matte of the main subject.
 
 The general-use weights (stored in fp16) and their remote code (birefnet.py, BiRefNet_config.py) come from the
 Hugging Face repository at REVISION, loaded with `AutoModelForImageSegmentation.from_pretrained(...,

@@ -11,7 +11,6 @@ Comment images are shown at size M (about 520 px); the original is `fullsize_ima
 
 import logging
 import re
-from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 

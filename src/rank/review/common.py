@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from ...common.io import iter_jsonl, write_json, write_jsonl
+from ...common.io import iter_jsonl, write_json
 from ...paths import FINAL_PAIRS, OUTPUT_DIR
 
 REVIEW_DIR = OUTPUT_DIR / "review"

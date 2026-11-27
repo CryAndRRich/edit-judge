@@ -13,7 +13,7 @@ The work is split into stages (the plan follows the course project proposal):
 | 2. Filtering: sensitive images and watermarks, each by several detectors and a vote | `src/filters` | 7 NSFW and 6 watermark detectors benchmarked on public sets; applied to the dataset on 2026-11-07 (`../docs/filters-benchmark.md`) |
 | 2. Request analysis with open VLMs (RealEdit's prompts): simplify and categorise the requests | `src/instructions` | Done (2026-11-07): every sample of the final dataset has an instruction and categories in `data/pairs.jsonl` |
 | 3. The learned scorer and its baselines | `src/scorer` | Final dataset (2026-11-07): `mlp-siglip` 56.7% test pair accuracy (human ceiling 67.3%), +4.9 to +8.5 points over CLIP-score, PickScore, SigLIP and HPSv2.1 (paired intervals above 0), 0.2 s per request on a T4; reward-model and VLM-judge baselines running on Kaggle (`../docs/scorer.md`) |
-| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `MODEL_LIST.md` (23 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); the quick test of lists 1, 4 to 7 (2 samples per task, 2026-11-24) ran 14 models; 4 slow ones and VAREdit 2B were dropped; next, every model on the first 80 samples of each task, scored (`SESSION = "small"`, about 9-10 h) |
+| 4. Editing models per operation, and their benchmark | `src/editors` | All 7 lists of `../docs/editors.md` (23 editors, 7 tasks). Lists 2 and 3 (8 models) ran on 30 dev samples per task (2026-11-21); the quick test of lists 1, 4 to 7 (2 samples per task, 2026-11-24) ran 14 models; 4 slow ones and VAREdit 2B were dropped; next, every model on the first 80 samples of each task, scored (`SESSION = "small"`, about 9-10 h) |
 | 5. The editing assistant | (no code yet) | Planned |
 
 ## Repository layout
@@ -32,13 +32,13 @@ src/                        Python package (run as `python -m src.<module>`)
   instructions/             request analysis (RealEdit): label sets, prompts/ (versioned), clients/ (VLMs), runner
   scorer/                   preference pairs and splits, encoders and embeddings, heads, training, evaluation, report
     rewards/                reward models and VLM judges used as baselines (ImageReward, EditReward, EditScore, ...)
-  editors/                  editing models (MODEL_LIST.md): sample sets, VLM edit plans, grounding masks, one
+  editors/                  editing models (`../docs/editors.md`): sample sets, VLM edit plans, grounding masks, one
                             wrapper per model in models/, runner, scores and report
 apps/ranking/               Gradio app the annotators run on their own computers (handed out as a zip)
-apps/web/                   Edit-Judge Studio, the assistant's web app (FastAPI); its own README.md
+apps/web/                   EditJudge Studio, the assistant's web app (FastAPI); see "Web app"
 configs/                    experiment settings (TOML), e.g. filters.toml, scorer.toml
 notebooks/                  Kaggle notebooks, named by stage: filters_*, instructions_*, scorer_*, editors_run,
-                            ranking_review (built by build_ranking_review.py)
+                            ranking_review (built by python -m src.rank.review.notebook)
 data/                       local only, git-ignored: the final dataset (images/, pairs.jsonl); see "Data"
 work/                       local only, git-ignored: everything used to build data/, and stage outputs
 requirements/               dependencies, one file per use (each includes the ones it builds on with -r):
@@ -48,12 +48,14 @@ requirements/               dependencies, one file per use (each includes the on
   scorer.txt                extra packages of the scorer's reward-model baselines (one environment per model)
   editors.txt               extra packages of the editing models (ml.txt +)
   web.txt                   the web app alone (mock models), e.g. on a laptop
+  ranking.txt               the annotators' ranking app (shipped in its zip as requirements.txt)
   server.txt                the GPU server of the live demo: editors.txt + web.txt (see "GPU server")
 .env.example                settings and secrets; copy to .env (git-ignored)
 ```
 
 Design notes, surveys and results are not in this repository: they live in the project's `docs/` folder next to
-it (`../docs/`: `PROJECT.md`, `filters-benchmark.md`, `scorer.md`, ...).
+it (`../docs/`: `PROJECT.md`, `filters-benchmark.md`, `scorer.md`, `editors.md` (the model list), `ranking-review.md`,
+...).
 
 ## Setup
 
@@ -101,7 +103,7 @@ Every task has its own folder, so members can work in parallel and merge with fe
 
 - Branch from `curr`, one branch per task and person: `<task>/<name>`, e.g. `filters-nsfw/minh`.
 - Work inside the task's folder (for example `src/filters/nsfw/` plus its entry in `nsfw/__init__.py`). Changes to
-  shared files (`src/paths.py`, `src/common/`, `requirements*.txt`, `README.md`) go in a separate small commit and
+  shared files (`src/paths.py`, `src/common/`, `requirements/`, `README.md`) go in a separate small commit and
   are announced to the coordinator.
 - Keep the shared formats: results keyed by `image_id` ("<sample id>/<key>") or sample ID, JSONL files under the
   task's data folder, settings in `configs/`.
@@ -145,11 +147,11 @@ work/
   index/image_cache.json            image header and hash cache of the build
   ranking/v1/, v2/                  ranking versions: manifest, assignments, results, labels, final rankings
   ranking/dist/                     the ranking app zip handed out to annotators (results are in ranking/vN/results)
-  filters/, instructions/, scorer/
+  filters/, instructions/, scorer/, editors/
                                     results of the later stages, one folder per task (EJ_OUTPUT_DIR)
   models/                           downloaded model weights
-  exports/editjudge-data.zip        the data packed for Kaggle (`python -m src.process pack`)
-  logs/                             run logs
+  exports/                          zips for Kaggle: editjudge-data.zip (`python -m src.process pack`, rebuilt when
+                                    needed), editjudge-scorer.zip (the mlp-siglip head for editors_run)
 ```
 
 - `note` is the text that came with an edit (the editor's comment, or a description of the change); may be null.
@@ -178,16 +180,16 @@ the resumable SQLite store, the image downloader and the JSONL export. A source 
 
 | Source | Module | Status |
 |---|---|---|
-| RealEdit (CVPR 2025, CC BY 4.0): r/PhotoshopRequest and r/estoration posts as image URLs | `sources/realedit.py` | Done: all 22,221 posts with at least 2 edits. Edits are ordered by upvotes |
-| dprevived.com "Edit Me An Image" (Misago) | `sources/dprevived.py` | Done |
-| mineo (Japan) | `sources/mineo.py` | Done; requests and edits share one thread and are paired by rules |
-| fotokto.ru (Russia, phpBB) | `sources/fotokto.py` | Done (small yield) |
-| VOZ (Vietnam, XenForo) | `sources/voz.py` | Done; robots.txt says `ai-train=no`: never used for training |
-| photoshopcontest.com | `sources/photoshopcontest.py` | Tried on 2026-10-07 (39 samples), stopped by decision |
-| b3ta.com image challenges | `sources/b3ta.py` | Tried; no usable samples (composites, dead image hosts) |
-| Zhopped via the Wayback Machine | `sources/zhopped.py` | Mostly thumbnails; archive.org rate limits |
-| Reddit API | `sources/reddit.py` | Blocked: API use needs prior approval since 2025-11-11. Refuses to run without credentials |
-| PhotoshopGurus (XenForo) | `sources/photoshopgurus.py` | **Suspended**: the team account was banned after a logged-in crawl. Refuses to run unless `PSG_PERMISSION=granted`, which may only be set after a forum admin allows it |
+| RealEdit (CVPR 2025, CC BY 4.0): r/PhotoshopRequest and r/estoration posts as image URLs | `sites/realedit.py` | Done: all 22,221 posts with at least 2 edits. Edits are ordered by upvotes |
+| dprevived.com "Edit Me An Image" (Misago) | `sites/dprevived.py` | Done |
+| mineo (Japan) | `sites/mineo.py` | Done; requests and edits share one thread and are paired by rules |
+| fotokto.ru (Russia, phpBB) | `sites/fotokto.py` | Done (small yield) |
+| VOZ (Vietnam, XenForo) | `sites/voz.py` | Done; robots.txt says `ai-train=no`: never used for training |
+| photoshopcontest.com | `sites/photoshopcontest.py` | Tried on 2026-10-07 (39 samples), stopped by decision |
+| b3ta.com image challenges | `sites/b3ta.py` | Tried; no usable samples (composites, dead image hosts) |
+| Zhopped via the Wayback Machine | `sites/zhopped.py` | Mostly thumbnails; archive.org rate limits |
+| Reddit API | `sites/reddit.py` | Blocked: API use needs prior approval since 2025-11-11. Refuses to run without credentials |
+| PhotoshopGurus (XenForo) | `sites/photoshopgurus.py` | **Suspended**: the team account was banned after a logged-in crawl. Refuses to run unless `PSG_PERMISSION=granted`, which may only be set after a forum admin allows it |
 
 GIER (ACCV 2020) is read from its published files by an adapter, not crawled.
 
@@ -219,9 +221,9 @@ neutral role `image_post` and are paired later.
 **Output** (`work/raw/<source>/`, deleted after the build): `crawl.sqlite` (state and parsed records), `raw/` (gzip page cache, so
 parsers can be fixed without crawling again), `images/`, and `export/`.
 
-**Adding a source:** subclass `Source` (or `XenForoSource`) in `sources/<name>.py`, set `name`, `label` and
+**Adding a source:** subclass `Source` (or `XenForoSource`) in `sites/<name>.py`, set `name`, `label` and
 `base_url`, implement `discover()`, `fetch_thread()` and `probe_targets()`, register the class in
-`sources/__init__.py`, and run `probe` before crawling.
+`sites/__init__.py`, and run `probe` before crawling.
 
 ## Building the dataset (`src.process`)
 
@@ -528,7 +530,7 @@ Outputs in `work/scorer/`: `embeddings/<encoder>/`, `runs/<name>/` (`metrics.jso
 
 ## Editing models (`src.editors`)
 
-The models of `MODEL_LIST.md` (all 7 lists, 23 editors: `python -m src.editors list`), run on a small fixed set of
+The models of `../docs/editors.md` (all 7 lists, 23 editors: `python -m src.editors list`), run on a small fixed set of
 dev samples per task and judged by the scorer:
 
 | Task | Ops | Specialists (list) |
@@ -543,7 +545,7 @@ dev samples per task and judged by the scorer:
 
 The generalists of list 1 (`instruct-pix2pix`, `magicbrush`, `realedit`, `flux2-klein-4b`) run on
 every task, with the instruction as their prompt (InstantIR, OmniGen2, VIBE and FLUX 3 Image Klein were dropped on
-2026-11-24 as too slow for live editing, VAREdit 2B on 2026-11-26: `MODEL_LIST.md`, "Left out"). The inpainting models need a
+2026-11-24 as too slow for live editing, VAREdit 2B on 2026-11-26: `../docs/editors.md`, "Left out"). The inpainting models need a
 mask for every sample; the mask-free ones get the instruction instead. Models whose code pins other packages get
 their own environment (`install`, `src/common/envs.py`; the pins are recorded in `requirements/editors.txt`);
 models that ship code but no package are downloaded at a pinned commit into `EJ_MODELS_DIR`.
@@ -585,7 +587,7 @@ python -m src.editors summary                        # work/editors/summary.md: 
   the other ops get no mask.
   Masks record their plan version, and a mask or an output of an older plan version is made again.
 - **Runner** (`base.py`): an editor subclasses `Editor` (`load(device)`, `edit(image, mask, prompt)`; `uses_mask`,
-  `ops` or `applies(sample, plan)`, `keep_size`, `settings_version`) in its own file in `models/` and is registered in `EDITORS`; settings follow `MODEL_LIST.md`. An output
+  `ops` or `applies(sample, plan)`, `keep_size`, `settings_version`) in its own file in `models/` and is registered in `EDITORS`; settings follow `../docs/editors.md`. An output
   records the digest of the mask it was made from and the editor's `settings_version`, so only samples whose mask
   or settings changed are run again. Outputs are resized back to
   the original size, and only the masked region is kept (pasted back on the original over a 3 px soft edge), so
@@ -604,18 +606,134 @@ model's downloads are deleted after its last run.
 
 ## Improving ranking labels (T-045)
 
-The review loop is implemented in `src/rank/review/` and `src/scorer/oof.py`. Start with
-[REVIEW_WORKFLOW.md](REVIEW_WORKFLOW.md). The self-contained [Kaggle notebook](notebooks/ranking_review.ipynb)
+The review loop is implemented in `src/rank/review/` and `src/scorer/oof.py`; the guide and the commands are in
+`../docs/ranking-review.md`. The self-contained [Kaggle notebook](notebooks/ranking_review.ipynb)
 imports the original HF result ZIPs and runs the automated stages on Kaggle without downloading the images
 to an annotator's laptop. Revised labels require independent reviews and adjudication, or explicit approval
 of a group proposal recorded with `review-approve`.
 `EJ_PAIRS_FILE` switches between frozen label versions while the images stay in `EJ_DATA_DIR/images`.
 
-## Web app and GPU server
+## Web app (EditJudge Studio)
 
-`apps/web/` is the assistant's web app (Edit-Judge Studio): it routes an instruction to the candidate models, runs
-them, scores the edits and shows the best one. Its own [README](apps/web/README.md) says how to run it on a
-laptop, where most models are still mocks. Wiring it to `src/editors` and the mlp-siglip scorer is the next step.
+**EditJudge Studio** (`apps/web/`) is the live photo-editing assistant of PROJECT.md Part III. A user picks
+or uploads a photo and writes a request (English or Vietnamese). The app reads the request, runs the best-ranked
+editing models of its task one after another, scores each edit as soon as it is ready, and lets the user compare any
+result with the original. Two more tabs show the model ranking (Part II Step 7) and the dataset.
+
+The layout and components are Steven's original app (`studio/static/css/app.css`, merged on 2026-11-25; the rules the page
+no longer uses were removed on 2026-11-27). The assistant flow, the tabs, the animations, the Dataset figures and the
+dark theme are in `studio/static/css/assistant.css` and `studio/static/js/app.js` (design agreed on 2026-11-27). The clickable
+prototype of this design is `../docs/ui-prototype/edit-judge-studio.html`, outside this repository.
+
+### What is real and what is simulated
+
+| Part | On a laptop (now) | On the GPU server (next step) |
+|---|---|---|
+| Reading the request | keyword router (`studio/router.py`, EN and VI); a Vietnamese request is sent unchanged | Qwen2.5-VL-7B (`src/editors/plan.py`): task, English instruction, target |
+| Model choice | real: `assistant.py` (rule below), from `data/rankings.json` | the same |
+| Editing models | plain code (PIL) and Real-ESRGAN (spandrel) run; the others are **mocks** that wait about as long as the real model takes | the `src/editors` wrappers |
+| Score | proxy heuristic (`scorer.py`), shown as exp(gain) | our scorer mlp-siglip (`work/scorer/runs/mlp-siglip/head.pt`), exp of its score |
+
+Every score is above 0 and higher is better.
+
+### The flow of one request
+
+1. **Read the request** (`assistant.understand`): one of the 7 benchmark tasks (remove, add_replace, enhance,
+   restore, change_color, formatting, open_ended), the operations it needs (add, low light, colourise, recolour,
+   upscale, crop/rotate/flip/resize/greyscale, cut-out, extend), the English instruction sent to the models and the
+   target to find. The request box shows them (task, instruction sent, target, models). A request has at most 100
+   characters. The `task` field of `POST /api/jobs` can override the task (the page does not send it).
+2. **Pick the models** (`assistant.pick_models`, `../docs/editors.md` "Live demo selection"): the models of the task, best
+   mean score first, without FLUX.2 klein 4B and InstructPix2Pix (too slow live). A model limited to one operation
+   (EraseDraw to Add, HVI-CIDNet to low light, DDColor to colourising, plain code to geometry, BEN2 and BiRefNet to
+   cut-outs, SDXL Outpainting to extending, SDXL Inpainting in Change color to recolouring, Real-ESRGAN in
+   Formatting to upscaling) runs only on requests with that operation. **When 6 apply, the first 6 run; otherwise
+   the first 3, or all when fewer** (Open-ended has 2).
+3. **Run them one after another, fastest first** (`pipeline.Jobs`), so the first result shows within a second or
+   two. One job at a time uses the models; another request waits (status "waiting").
+4. **Score each output** as soon as it is ready; when all have run, the best one is marked.
+5. **Show the result:** the cards move into rank order (failed models last), each with a download button, and the
+   best edit opens in the before / after slider, with its model, score, latency and rank under it. Clicking another
+   card opens that edit.
+
+#### The progress bar of a model
+
+The expected time is the model's mean seconds per image on a T4 (`data/rankings.json`) times `EJ_WEB_SPEEDUP`
+(0.45 for an A30). The bar fills linearly to 85% over 85% of the expected time, then slows down toward 99% and never
+reaches 100% before the result; when the result arrives it runs to 100% in 250 ms. Past 115% of the expected time
+the card says "slower than usual". The bar at the bottom of the request box sums the expected times of all models.
+
+### How to run (laptop)
+
+Commands from the repository root:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements/web.txt
+.venv/bin/python apps/web/fetch_dev_split.py    # 5 public sample photos (Picsum/Unsplash, COCO) into apps/web/dev_split/
+.venv/bin/python apps/web/run.py                # http://127.0.0.1:8000, API docs at /docs
+```
+
+`apps/web/run.py --port 8010` uses another port, `--reload` restarts on code changes. For the GPU server see "GPU
+server" below.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EJ_WEB_SPEEDUP` | `0.45` | T4 seconds times this = the expected seconds on this machine |
+| `EJ_WEB_MOCK_DELAY` | `1` | `0`: mocks return at once (no waiting) |
+| `EJ_WEB_SCORER` | `proxy` | `proxy`, `imagereward`, `editreward` (`scorer.py`; mlp-siglip comes with the server) |
+| `EJ_WEB_REAL_MODELS` | `1` | `0` replaces Real-ESRGAN with a Lanczos mock (no torch needed) |
+| `EJ_WEB_ESRGAN_MAX_SIDE` | `512` | Real-ESRGAN input size; the output is 4 times larger |
+| `EJ_WEB_KEEP_RUNS` | `40` | job folders kept in `apps/web/studio/outputs/` |
+| `EJ_WEB_UPLOADS`, `EJ_WEB_OUTPUTS`, `EJ_WEB_CACHE` | under `apps/web/studio/` | storage folders |
+
+### Files
+
+```
+apps/web/
+  run.py                  starts uvicorn
+  fetch_dev_split.py      downloads the 5 sample photos
+  dev_split/              the sample photos (only manifest.json is committed)
+  studio/                 the app (Python package)
+    main.py               FastAPI routes
+    assistant.py          reading the request, picking the models, the Rankings view
+    pipeline.py           uploads, samples, jobs (run one after another, score, rank)
+    catalog.py            the live models (src/editors registry names), rankings.json and dataset.json
+    router.py             keyword intents of a request (EN and VI) and parameters
+    model_runner.py       one handler per model: real (plain code, Real-ESRGAN) or mock
+    scorer.py             proxy score, ImageReward / EditReward wrappers
+    templates/index.html  the page: tabs Assistant, Rankings, Dataset
+    static/css/app.css    Steven's design system (layout, components)
+    static/css/assistant.css  the assistant's additions and the dark theme
+    static/js/app.js      the page logic (no build step)
+    data/rankings.json    the scored run of 2026-11-26: per task, every model's mean score and seconds per image
+    data/dataset.json     the figures of the Dataset tab (from the two reports in ../docs/report and data/pairs.jsonl)
+```
+`studio/data/rankings.json` is written from `work/editors/<task>/scores.jsonl` and `runs.jsonl` after a scored run of
+`notebooks/editors_run.ipynb`; rewrite it when the benchmark runs again.
+
+### API
+
+| Method | Path | Body / result |
+|---|---|---|
+| GET | `/` | the app; `#rankings` and `#dataset` open those tabs |
+| GET | `/api/health` | status, device, model count, scorer |
+| GET | `/api/samples` | sample photos with a request, source, author and licence |
+| POST | `/api/upload` | multipart `file` -> `{image_id, url, width, height, filename, bytes}` |
+| POST | `/api/jobs` | `{image_id` or `sample_id, instruction, task?}` -> `202` the job |
+| GET | `/api/jobs/{job_id}` | the job, polled every 300 ms by the page |
+| GET | `/api/rankings` | per task: every benchmarked model with its place, score, T4 `seconds`, `estimate` on the live GPU (seconds x `EJ_WEB_SPEEDUP`) and whether it runs live |
+| GET | `/api/dataset` | the figures of `data/dataset.json` and the number of benchmarked models |
+
+A job: `{job_id, status (waiting, running, done, error), understood: {task, task_label, operations, english, target,
+vietnamese}, original: {url, width, height}, candidates: [{model, name, benchmark, estimate, status (queued,
+running, ok, failed), elapsed, seconds, score, rank, best, image_url, thumb_url, transparent, backend, error}]}`.
+Candidates are in running order (fastest first).
+
+Upload rules: JPEG, PNG, WebP, BMP, TIFF and GIF, up to 25 MB and 60 MP; the photo is normalised before it is stored
+(EXIF rotation applied, RGB, at most 2048 px). Errors return `{"detail": "..."}`: 400 empty file, 404 unknown image,
+sample or job, 413 too large, 415 not a readable image, 422 invalid body (empty or longer than 100 characters, unknown
+task).
 
 ### GPU server
 
@@ -635,6 +753,15 @@ export EJ_MODELS_DIR=/data/models EJ_ENVS_DIR=/data/envs   # a large disk: about
 `setup --models a,b` prepares only some editors; it resumes, so a second run only checks what is there. The
 planner (Qwen2.5-VL-7B), Grounding DINO, SAM 2.1 and the scorer's SigLIP download into the Hugging Face cache on
 first use.
+
+### Next steps
+
+- Replace the mocks with the `src/editors` wrappers, one model at a time, keeping the models in RAM and moving one at
+  a time to the GPU (peak about 11.5 GB, `../docs/editors.md`).
+- Qwen2.5-VL-7B (4-bit) reads the request and writes the English instruction; Grounding DINO and SAM 2.1 make the
+  masks of remove, add_replace and change_color.
+- Score with mlp-siglip; check free GPU memory before each model.
+- Jobs are in memory: a restart loses the running ones.
 
 ## Data rules
 

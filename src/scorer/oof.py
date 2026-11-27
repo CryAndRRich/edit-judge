@@ -8,7 +8,7 @@ import time
 import numpy as np
 
 from ..common.device import check_heavy_run, pick_device
-from ..common.io import iter_jsonl, write_json, write_jsonl
+from ..common.io import write_json, write_jsonl
 from ..paths import FINAL_PAIRS
 from ..rank.review.common import dataset, digest, fingerprint, frozen_json, round_dir
 from .train import DEFAULTS, edit_features, load_config, train_head

@@ -164,7 +164,7 @@ class Store:
     def upsert_thread(self, t: dict) -> None:
         """Insert a discovered thread, or refresh its listing fields (fetch state is preserved)."""
         row = {"section": None, "title": None, "prefix": None, "author_hash": None, "created_at": None,
-               "reply_count": None, "view_count": None, "last_post_at": None, "is_sticky": 0, **t,
+               "reply_count": None, "view_count": None, "last_post_at": None, **t,
                "thread_id": str(t["thread_id"]), "is_sticky": int(bool(t.get("is_sticky"))),
                "meta": json.dumps(t["meta"]) if t.get("meta") is not None else None, "listed_at": now()}
         self.db.execute(

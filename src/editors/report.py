@@ -10,8 +10,8 @@ and work/editors/<task>/sheets/sheet-NN.jpg, contact sheets for checking by eye:
 original, the mask in red, the best human edit and every model's output. They show real people: team only, never
 published.
 
-With about 30 samples per task the shares have wide intervals (about +-18 points at 50%): they show whether a model
-works and roughly where it stands, not a ranking of close models.
+The shares have wide intervals (95%, at 50%: about +-18 points with 30 samples per task, +-11 with 80; the summary
+states them): they show whether a model works and roughly where it stands, not a ranking of close models.
 """
 
 import statistics
@@ -35,18 +35,19 @@ def model_scores(task: str, models: list[str]) -> dict[str, dict]:
     top = {row["id"]: row["top_human"] for row in iter_jsonl(scores_path(task))}
     result = {}
     for name in models:
-        beats_top, beats_share, best_model = [], [], []
+        mean_score, beats_top, beats_share, best_model = [], [], [], []
         for sample_id, edits in scores.items():
             mine = edits.get(f"model:{name}")
             if mine is None:
                 continue
             humans = [v for k, v in edits.items() if k.startswith("human:")]
             others = [v for k, v in edits.items() if k.startswith("model:") and k != f"model:{name}"]
+            mean_score.append(mine)
             beats_top.append(mine > edits.get(f"human:{top[sample_id]}", float("inf")))
             beats_share.append(sum(mine > v for v in humans) / len(humans))
             best_model.append(all(mine > v for v in others))
         count = len(beats_top)
-        result[name] = {"scored": count,
+        result[name] = {"scored": count, "mean_score": statistics.mean(mean_score) if count else None,
                         "beats_top_human": sum(beats_top) / count if count else None,
                         "beats_humans": statistics.mean(beats_share) if count else None,
                         "best_model": sum(best_model) / count if count else None}
@@ -55,6 +56,10 @@ def model_scores(task: str, models: list[str]) -> dict[str, dict]:
 
 def percent(value) -> str:
     return "-" if value is None else f"{value:.0%}"
+
+
+def number(value) -> str:
+    return "-" if value is None else f"{value:.2f}"
 
 
 def tile(path, label: str, mask=None):
@@ -178,10 +183,10 @@ def report(task: str, client_name: str = DEFAULT_CLIENT, version: int | None = N
         lines += [f"- {name} {r['id']}: {r['status']} {r.get('error') or ''}" for name, r in failures[:20]]
     if scores_path(task).exists():
         lines += ["", "## Scorer", "",
-                  "| Model | Scored | Above the best human edit | Share of human edits beaten | Best model |",
-                  "|---|---|---|---|---|"]
+                  "| Model | Scored | Mean score | Above the best human edit | Share of human edits beaten | Best model |",
+                  "|---|---|---|---|---|---|"]
         for name, m in model_scores(task, models).items():
-            lines.append(f"| {name} | {m['scored']} | {percent(m['beats_top_human'])} | "
+            lines.append(f"| {name} | {m['scored']} | {number(m['mean_score'])} | {percent(m['beats_top_human'])} | "
                          f"{percent(m['beats_humans'])} | {percent(m['best_model'])} |")
         lines += ["", "The scorer learned from human edits; check the contact sheets before trusting these shares."]
     if sheets:
@@ -200,12 +205,16 @@ def overview() -> str:
     from . import TASKS
     from .samples import samples_path
 
+    counts = [len(load_task_samples(task)) for task in TASKS if samples_path(task).exists()]
+    typical = round(statistics.median(counts)) if counts else 0
+    interval = f"about +-{98 / typical ** 0.5:.0f} points at 50%" if typical else "unknown"
     lines = ["# Editing models: all tasks", "",
-             "Shares from the scorer (mlp-siglip): Above best = the output beats the best human edit; Humans beaten = "
-             "mean share of the human edits it beats; Best model = it beats every other model of the task. About 30 "
-             "dev samples per task: intervals are about +-18 points at 50%.", "",
-             "| Task | Model | Ok | Failed | n/a | Median s / image | Peak GPU GB | Scored | Above best | "
-             "Humans beaten | Best model |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "Mean score: the mean of the scorer's (mlp-siglip) scores of the model's outputs, above 0, higher is better. "
+             "Shares from the scorer: Above best = the output beats the best human edit; Humans beaten = "
+             "mean share of the human edits it beats; Best model = it beats every other model of the task. About "
+             f"{typical} dev samples per task: 95% intervals are {interval}.", "",
+             "| Task | Model | Ok | Failed | n/a | Median s / image | Peak GPU GB | Scored | Mean score | Above best | "
+             "Humans beaten | Best model |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for task in TASKS:
         if not samples_path(task).exists():
             continue
@@ -221,7 +230,8 @@ def overview() -> str:
             lines.append(f"| {task} | {name} | {runs['ok']} | {runs['failed'] + runs['black']} | {runs['n/a']} | "
                          f"{runs['median_seconds'] if runs['median_seconds'] is not None else '-'} | "
                          f"{runs['gpu_peak_gb'] if runs['gpu_peak_gb'] is not None else '-'} | "
-                         f"{score.get('scored', '-')} | {percent(score.get('beats_top_human'))} | "
+                         f"{score.get('scored', '-')} | {number(score.get('mean_score'))} | "
+                         f"{percent(score.get('beats_top_human'))} | "
                          f"{percent(score.get('beats_humans'))} | {percent(score.get('best_model'))} |")
     text = "\n".join(lines) + "\n"
     out = EDITORS_DIR / "summary.md"

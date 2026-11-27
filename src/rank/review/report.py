@@ -7,7 +7,7 @@ from collections import defaultdict
 from ...common.io import iter_jsonl, write_json
 from ...paths import SCORER_DIR
 from ...scorer.data import split_of
-from .common import REVIEW_DIR, dataset, digest, fingerprint, originals, round_dir, selected
+from .common import REVIEW_DIR, dataset, fingerprint, originals, round_dir, selected
 
 
 def metric_pairs(rows):

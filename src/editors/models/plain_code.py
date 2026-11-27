@@ -1,4 +1,4 @@
-"""Plain code (PIL), the "sometimes the right answer" baseline of MODEL_LIST.md list 7: the format action of the
+"""Plain code (PIL), the "sometimes the right answer" baseline of ../docs/editors.md list 7: the format action of the
 sample's plan (plan_v4, op "format") carried out exactly, with no model.
 
 Actions: crop (to the plan's box), rotate (by the plan's degrees, counter-clockwise as plan_v4 asks, or clockwise

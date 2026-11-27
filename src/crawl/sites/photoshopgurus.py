@@ -13,7 +13,7 @@ import logging
 
 from ..config import ENV
 from ..parsers import xenforo
-from .base import Source, SourceUnavailable
+from .base import SourceUnavailable
 from .xenforo_site import XenForoSource
 
 log = logging.getLogger(__name__)

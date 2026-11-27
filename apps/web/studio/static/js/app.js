@@ -1,698 +1,613 @@
-/* Edit-Judge Studio front end (vanilla JS, no build step).
- * Flow: pick an image (upload or sample) -> type an instruction (live routing preview) -> POST /api/jobs ->
- * poll GET /api/jobs/{id} (per-model progress) -> render the winner, the candidate grid and the leaderboard.
- * URL parameters: ?sample=<id>&instruction=<text>&autorun=1, or ?run=<run id> to reopen a finished run.
- */
+// EditJudge Studio: the live assistant (tabs Assistant, Rankings, Dataset). No build step, no framework.
+// Assistant flow: pick or upload a photo, write a request, Process. POST /api/jobs reads the request (task, the
+// instruction sent to the models) and picks the models; GET /api/jobs/{id} is polled while they run one after
+// another. Each card's bar follows the model's expected time (see progressAt); the result shows with its score.
+// When every model has run, the cards move into rank order and the best edit opens in the before / after slider.
 (() => {
   "use strict";
 
-  const MAX_BYTES = 25 * 1024 * 1024;
-  const QUICK_TAGS = [
-    "Make brighter", "Remove background", "Super resolution", "Sharpen details", "Black and white",
-    "Remove the object", "Restore old photo", "Colorize", "Crop to square",
-    "Làm nét ảnh", "Xóa phông nền", "Làm sáng ảnh",
-  ];
-  const CATEGORY_LABELS = {
-    shared: "Shared", remove: "Remove", add_replace: "Add / Replace", enhance: "Enhance",
-    restore: "Restore", color: "Change Color", formatting: "Formatting",
-  };
+  const $ = (id) => document.getElementById(id);
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const fmt = (value) => value.toLocaleString("en-US");
+  const compact = (value) => (value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value));
+  const POLL_MS = 300;
+  const FINISH_MS = 250;
+  const SWEEP_MS = 900;
+  const MAX_REQUEST = 100;
+  const ACTIVE = ["waiting", "running"];
 
   const state = {
-    image: null,          // {kind: "upload"|"sample", id, url, name, width, height}
+    image: null,          // {kind: "upload" | "sample", id, url, width, height, name}
     samples: [],
-    result: null,
-    filter: "all",
-    sort: "score",
+    job: null,            // the last job from the server
+    jobId: null,
+    polledAt: 0,          // when `job` arrived (ms, performance clock)
+    bars: {},             // model -> {progress, finishedAt, from, shown}
+    selected: null,       // model shown in the slider
+    heroModel: null,      // model the slider shows now (a new one sweeps in)
+    ranked: false,        // cards in rank order (after the run)
+    appeared: new Set(),  // cards already shown (they rise only once)
+    revealed: new Set(),  // results already shown (they develop only once)
     running: false,
-    routeTimer: null,
-    routeSeq: 0,
-    modalId: null,
-    returnFocus: null,
-    modelNames: {},
-    visible: [],
+    rankings: null,
+    dataset: null,
   };
 
   // ---------------------------------------------------------------- helpers
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[c]);
-  const fmtGain = (g) => (g == null || !Number.isFinite(g)) ? "—" : (g > 0 ? "+" : "") + g.toFixed(3);
-  const gainClass = (g) => (g == null || Math.abs(g) < 0.0005) ? "zero" : (g > 0 ? "pos" : "neg");
-  const fmtMs = (ms) => ms == null ? "—" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)} s`;
-  const fmtGb = (gb) => gb == null ? "—" : gb < 0.1 ? `${Math.round(gb * 1000)} MB` : `${gb.toFixed(1)} GB`;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const ICONS = {
-    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-    chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>',
-    crown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7l4.5 4L12 4l4.5 7L21 7l-2 12H5L3 7z"/></svg>',
-    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v12m0 0-4-4m4 4 4-4M4 20h16"/></svg>',
-    zoom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M11 8v6M8 11h6"/></svg>',
-    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>',
-    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
-  };
-
   async function api(path, options = {}) {
     const response = await fetch(path, options);
     let body = null;
-    try { body = await response.json(); } catch (_) { /* not JSON */ }
-    if (!response.ok) {
-      const detail = body && body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : response.statusText;
-      const error = new Error(detail || `HTTP ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
+    try { body = await response.json(); } catch (error) { body = null; }
+    if (!response.ok) throw new Error((body && body.detail) || `${response.status} ${response.statusText}`);
     return body;
   }
+  function toast(message) {
+    const el = document.createElement("div");
+    el.className = "toast error";
+    el.innerHTML = `<b>Something went wrong</b> <span>${esc(message)}</span>`;
+    $("toasts").appendChild(el);
+    setTimeout(() => el.remove(), 6000);
+  }
+  const isDone = (candidate) => candidate.status === "ok" || candidate.status === "failed";
 
-  function toast(title, message, kind = "error") {
-    const node = document.createElement("div");
-    node.className = `toast ${kind}`;
-    node.innerHTML = `<b>${esc(title)}</b><div class="muted" style="margin-top:2px;font-size:12.5px">${esc(message)}</div>`;
-    $("#toasts").appendChild(node);
-    setTimeout(() => { node.style.opacity = "0"; node.style.transform = "translateY(6px)"; node.style.transition = "opacity .3s, transform .3s"; }, 5200);
-    setTimeout(() => node.remove(), 5600);
+  // ---------------------------------------------------------------- progress of one model
+  // 0 -> 85% linearly over 85% of the expected time, then slower and slower toward 99% (never 100% before the
+  // result). When the result arrives, a short ease-out to 100%.
+  function progressAt(elapsed, estimate) {
+    const knee = 0.85 * estimate;
+    if (elapsed <= knee) return 0.85 * elapsed / knee;
+    return 0.85 + 0.14 * (1 - Math.exp(-(elapsed - knee) / (0.6 * estimate)));
+  }
+  function elapsedNow(candidate) {
+    return (candidate.elapsed || 0) + (performance.now() - state.polledAt) / 1000;
   }
 
-  // ---------------------------------------------------------------- image selection
+  // ---------------------------------------------------------------- theme
+  function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    const next = theme === "dark" ? "light" : "dark";
+    $("theme-btn").setAttribute("aria-label", `Switch to ${next} mode`);
+    $("theme-btn").title = `Switch to ${next} mode`;
+    try { localStorage.setItem("ej-theme", theme); } catch (error) { /* storage blocked: the choice lasts this visit */ }
+  }
+  $("theme-btn").addEventListener("click", () => setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark"));
+
+  // ---------------------------------------------------------------- views: tabs with a sliding pill
+  const VIEWS = ["assistant", "rankings", "dataset"];
+  function movePill() {
+    const active = document.querySelector(".view-switch button.active");
+    const pill = document.querySelector(".tab-pill");
+    if (!active || !pill) return;
+    pill.style.width = `${active.offsetWidth}px`;
+    pill.style.transform = `translateX(${active.offsetLeft}px)`;
+  }
+  function showView(name) {
+    VIEWS.forEach((view) => {
+      $("tab-" + view).classList.toggle("active", view === name);
+      $("tab-" + view).setAttribute("aria-selected", String(view === name));
+      $("view-" + view).classList.toggle("hidden", view !== name);
+    });
+    $("layout").classList.toggle("wide", name !== "assistant");
+    movePill();
+    const layout = $("layout");
+    layout.classList.remove("enter");
+    void layout.offsetWidth;            // restart the entrance animation
+    layout.classList.add("enter");
+    if (name === "rankings") showRankings();
+    if (name === "dataset") showDataset();
+  }
+  const viewOfHash = () => (VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "assistant");
+  VIEWS.forEach((view) => $("tab-" + view).addEventListener("click", () => { showView(view); history.replaceState(null, "", "#" + view); }));
+  window.addEventListener("hashchange", () => showView(viewOfHash()));
+  window.addEventListener("resize", movePill);
+  if (document.fonts) document.fonts.ready.then(movePill);
+
+  // ---------------------------------------------------------------- backdrop: columns of photos falling
+  // 6 columns of 8 photos, each column twice so the fall loops without a jump, tall enough for the whole window
+  function fillCollage(urls) {
+    if (!urls.length) return;
+    $("collage").innerHTML = [0, 1, 2, 3, 4, 5].map((column) => {
+      const tiles = [0, 1, 2, 3, 4, 5, 6, 7].map((row) => {
+        const rot = ((column * 7 + row * 5) % 9) - 4;
+        return `<figure class="collage-tile" style="--rot:${rot}deg"><img src="${esc(urls[(column + row) % urls.length])}" alt="" loading="lazy"></figure>`;
+      }).join("");
+      return `<div class="fall" style="--speed:${11 + column * 2}s;--delay:-${column * 3.5}s">${tiles}${tiles}</div>`;
+    }).join("");
+  }
+
+  // ---------------------------------------------------------------- source image
+  function resetRun() {
+    state.job = null; state.jobId = null; state.selected = null; state.heroModel = null; state.bars = {};
+    state.ranked = false; state.appeared = new Set(); state.revealed = new Set();
+  }
   function setImage(image) {
     state.image = image;
-    const preview = $("#dz-preview"), empty = $("#dz-empty");
-    if (image) {
-      $("#dz-img").src = image.url;
-      $("#dz-name").textContent = image.name;
-      $("#img-dims").textContent = image.width ? `${image.width} × ${image.height}` : "";
-      preview.classList.remove("hidden");
-      empty.classList.add("hidden");
-    } else {
-      $("#dz-img").removeAttribute("src");
-      $("#img-dims").textContent = "";
-      preview.classList.add("hidden");
-      empty.classList.remove("hidden");
-    }
-    $$(".sample").forEach((node) => node.classList.toggle("active", !!image && image.kind === "sample" && node.dataset.id === image.id));
+    resetRun();
+    document.querySelectorAll(".sample").forEach((el) => el.classList.toggle("active", image.kind === "sample" && el.dataset.id === image.id));
+    $("route-box").classList.add("hidden");
+    $("progress").classList.add("hidden");
     updateRunButton();
+    renderHero(); renderGrid();
   }
-
   async function uploadFile(file) {
     if (!file) return;
-    if (!file.type.startsWith("image/") && !/\.(jpe?g|png|webp|bmp|tiff?|gif)$/i.test(file.name)) {
-      toast("Not an image", `${file.name} is not an image file.`);
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      toast("File too large", `${(file.size / 1048576).toFixed(1)} MB; the limit is 25 MB.`);
-      return;
-    }
-    const localUrl = URL.createObjectURL(file);
-    setImage({ kind: "pending", id: null, url: localUrl, name: file.name });
-    const zone = $("#dropzone");
-    zone.classList.add("uploading");
-    $("#dz-name").textContent = `Uploading ${file.name}…`;
+    if (state.running) { toast("wait until the current request finishes"); return; }
+    const form = new FormData();
+    form.append("file", file);
+    $("dropzone").classList.add("uploading");
     try {
-      const form = new FormData();
-      form.append("file", file, file.name);
       const meta = await api("/api/upload", { method: "POST", body: form });
-      setImage({ kind: "upload", id: meta.image_id, url: meta.url, name: meta.filename, width: meta.width, height: meta.height });
+      setImage({ kind: "upload", id: meta.image_id, url: meta.url, width: meta.width, height: meta.height, name: meta.filename });
     } catch (error) {
-      setImage(null);
-      toast("Upload failed", error.message);
+      toast(error.message);
     } finally {
-      zone.classList.remove("uploading");
-      URL.revokeObjectURL(localUrl);
+      $("dropzone").classList.remove("uploading");
     }
   }
+  $("dropzone").addEventListener("click", () => $("file-input").click());
+  $("dropzone").addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("file-input").click(); } });
+  $("file-input").addEventListener("change", (event) => { uploadFile(event.target.files[0]); event.target.value = ""; });
+  ["dragenter", "dragover"].forEach((name) => $("dropzone").addEventListener(name, (event) => { event.preventDefault(); $("dropzone").classList.add("dragover"); }));
+  ["dragleave", "drop"].forEach((name) => $("dropzone").addEventListener(name, () => $("dropzone").classList.remove("dragover")));
+  $("dropzone").addEventListener("drop", (event) => { event.preventDefault(); uploadFile(event.dataTransfer.files[0]); });
+  document.addEventListener("paste", (event) => {
+    const item = [...(event.clipboardData?.items || [])].find((entry) => entry.type.startsWith("image/"));
+    if (item) uploadFile(item.getAsFile());
+  });
 
-  function bindDropzone() {
-    const zone = $("#dropzone"), input = $("#file-input");
-    zone.addEventListener("click", (event) => {
-      if (event.target.closest("#dz-clear")) return;
-      input.click();
-    });
-    zone.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); input.click(); }
-    });
-    input.addEventListener("change", () => { uploadFile(input.files[0]); input.value = ""; });
-    ["dragenter", "dragover"].forEach((type) => zone.addEventListener(type, (event) => {
-      event.preventDefault(); zone.classList.add("dragover");
-    }));
-    ["dragleave", "dragend"].forEach((type) => zone.addEventListener(type, () => zone.classList.remove("dragover")));
-    zone.addEventListener("drop", (event) => {
-      event.preventDefault();
-      zone.classList.remove("dragover");
-      const file = event.dataTransfer.files && event.dataTransfer.files[0];
-      if (file) uploadFile(file);
-    });
-    // a page-wide drop also works
-    window.addEventListener("dragover", (event) => event.preventDefault());
-    window.addEventListener("drop", (event) => {
-      if (event.target.closest && event.target.closest("#dropzone")) return;
-      event.preventDefault();
-      const file = event.dataTransfer && event.dataTransfer.files[0];
-      if (file) uploadFile(file);
-    });
-    window.addEventListener("paste", (event) => {
-      const item = Array.from(event.clipboardData?.items || []).find((i) => i.type.startsWith("image/"));
-      if (item) uploadFile(item.getAsFile());
-    });
-    $("#dz-clear").addEventListener("click", (event) => { event.stopPropagation(); setImage(null); });
-  }
-
-  function renderSamples() {
-    const box = $("#samples");
-    if (!state.samples.length) {
-      box.innerHTML = '<div class="faint" style="grid-column:1/-1;font-size:12px">No samples — run <span class="mono">python apps/web/fetch_dev_split.py</span></div>';
-      return;
+  async function loadSamples() {
+    try {
+      state.samples = (await api("/api/samples")).samples;
+    } catch (error) {
+      state.samples = [];
     }
-    $("#samples-note").textContent = `${state.samples.length} public photos`;
-    box.innerHTML = state.samples.map((s) => `
-      <button class="sample" type="button" data-id="${esc(s.id)}" title="${esc(s.instruction)} — ${esc(s.author || s.source)} (${esc(s.source)})">
-        <img src="${esc(s.url)}" alt="${esc(s.id)}" loading="lazy">
-      </button>`).join("");
-    $$(".sample", box).forEach((node) => node.addEventListener("click", () => selectSample(node.dataset.id, true)));
+    $("samples").innerHTML = state.samples.map((sample) =>
+      `<button class="sample" type="button" data-id="${esc(sample.id)}" title="${esc(sample.instruction)}"><img src="${esc(sample.url)}" alt="${esc(sample.instruction)}" loading="lazy"></button>`).join("");
+    fillCollage(state.samples.map((sample) => sample.url));
+    if (!state.image && state.samples.length) pickSample(state.samples[0]);     // start with a photo in the frame
   }
-
-  // decorative background: the sample photos laid out as an overlapping, slightly tilted print collage
-  const COLLAGE = [
-    [-3, 8, -7, "l"], [7, 30, 5, "p"], [15, 14, -3, "l"], [25, 36, 8, "l"], [33, 4, -6, "p"],
-    [42, 28, 3, "l"], [51, 10, -8, "l"], [60, 34, 6, "p"], [68, 6, -4, "l"], [77, 30, 7, "l"],
-    [86, 12, -5, "p"], [93, 38, 4, "l"],
-  ];
-  function renderCollage(samples) {
-    const box = $("#collage");
-    if (!box || !samples.length) return;
-    box.innerHTML = COLLAGE.map(([left, top, rot, shape], i) => {
-      const s = samples[i % samples.length];
-      return `<figure class="collage-tile ${shape}" style="left:${left}%;top:${top}%;--rot:${rot}deg;animation-delay:${i * 60}ms"><img src="${esc(s.url)}" alt="" decoding="async"></figure>`;
-    }).join("");
+  function pickSample(sample) {
+    setImage({ kind: "sample", id: sample.id, url: sample.url, width: sample.width, height: sample.height, name: sample.file });
+    setInstruction(sample.instruction);
   }
+  $("samples").addEventListener("click", (event) => {
+    const button = event.target.closest(".sample");
+    if (!button || state.running) return;
+    const sample = state.samples.find((row) => row.id === button.dataset.id);
+    if (sample) pickSample(sample);
+  });
 
-  function selectSample(id, fillInstruction) {
-    const sample = state.samples.find((s) => s.id === id);
-    if (!sample) return false;
-    setImage({ kind: "sample", id: sample.id, url: sample.url, name: `${sample.id} · ${sample.author || sample.source}`, width: sample.width, height: sample.height });
-    if (fillInstruction) setInstruction(sample.instruction);
-    return true;
+  // ---------------------------------------------------------------- request: one line that grows with the text
+  function fitRequest() {
+    const box = $("instruction");
+    box.style.height = "auto";
+    box.style.height = `${box.scrollHeight}px`;
+    $("char-count").textContent = `${box.value.length} / ${MAX_REQUEST}`;
+    updateRunButton();
   }
-
-  // ---------------------------------------------------------------- instruction + routing preview
   function setInstruction(text) {
-    const box = $("#instruction");
-    box.value = text;
-    onInstruction();
+    $("instruction").value = text.slice(0, MAX_REQUEST);
+    fitRequest();
   }
-
-  function onInstruction() {
-    const text = $("#instruction").value;
-    $("#char-count").textContent = `${text.length} / 500`;
-    $$("#quick-tags .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.tag === text.trim()));
-    updateRunButton();
-    clearTimeout(state.routeTimer);
-    state.routeTimer = setTimeout(previewRoute, 220);
-  }
-
-  async function previewRoute() {
-    const text = $("#instruction").value.trim();
-    const box = $("#route-box");
-    if (!text) {
-      box.innerHTML = '<div class="row"><span class="label">Routing</span><span class="faint">Type an instruction to see which models will run.</span></div>';
-      return;
-    }
-    const seq = ++state.routeSeq;
-    try {
-      const route = await api("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction: text }) });
-      if (seq !== state.routeSeq) return;
-      const cats = route.categories.filter((c) => c.id !== "shared");
-      const intents = Object.keys(route.intents);
-      box.innerHTML = `
-        <div class="row"><span class="label">Tasks</span>
-          <span class="badge">Shared</span>
-          ${cats.map((c) => `<span class="badge cat">${esc(c.label)}</span>`).join("")}
-          ${cats.length ? "" : '<span class="faint">generalists only</span>'}
-        </div>
-        ${intents.length ? `<div class="row"><span class="label">Intents</span>${intents.map((i) => `<span class="intent">${esc(i)}</span>`).join("")}</div>` : ""}
-        <div class="row"><span class="label">Models</span><span><b class="mono">${route.models.length}</b> <span class="muted">candidates will run</span></span></div>`;
-    } catch (error) {
-      if (seq === state.routeSeq) box.innerHTML = `<div class="row"><span class="faint">Routing preview unavailable: ${esc(error.message)}</span></div>`;
-    }
-  }
-
   function updateRunButton() {
-    const ready = state.image && state.image.id && $("#instruction").value.trim().length > 0 && !state.running;
-    $("#run-btn").disabled = !ready;
+    $("run-btn").disabled = state.running || !state.image || !$("instruction").value.trim();
   }
+  $("instruction").addEventListener("input", fitRequest);
+  $("instruction").addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); processRequest(); } });
+  $("run-btn").addEventListener("click", () => processRequest());
 
-  // ---------------------------------------------------------------- running
-  async function run() {
-    if (state.running || !state.image || !state.image.id) return;
-    const instruction = $("#instruction").value.trim();
-    if (!instruction) return;
-    state.running = true;
+  function setRunning(running) {
+    state.running = running;
+    $("run-btn").classList.toggle("loading", running);
+    $("run-label").textContent = running ? "Processing" : "Process";
     updateRunButton();
-    const button = $("#run-btn");
-    button.classList.add("loading");
-    $("#run-label").textContent = "Running models…";
-    button.querySelector("svg").outerHTML = '<span class="spinner"></span>';
-    $("#progress").classList.remove("hidden");
-    $("#progress-text").textContent = "Starting…";
-    $("#progress-bar").style.width = "4%";
+  }
 
-    const body = { instruction };
-    if (state.image.kind === "sample") body.sample_id = state.image.id; else body.image_id = state.image.id;
+  // what the assistant read: rows appear one by one, then the models pop in
+  function renderRouteBox(understood) {
+    const models = (state.job?.candidates || []).map((c, index) => `<span class="intent" style="--k:${index}">${esc(c.name)}</span>`).join("");
+    $("route-box").innerHTML = `<div class="fade">
+      <div class="row"><span class="label">Task</span><b>${esc(understood.task_label)}</b></div>
+      <div class="row"><span class="label">Sent</span><span class="sent">${esc(understood.english)}</span></div>
+      ${understood.target ? `<div class="row"><span class="label">Target</span><b>${esc(understood.target)}</b></div>` : ""}
+      <div class="row"><span class="label">Models</span>${models}</div></div>`;
+    $("route-box").classList.remove("hidden");
+  }
+
+  // ---------------------------------------------------------------- run
+  async function processRequest() {
+    const instruction = $("instruction").value.trim();
+    if (!state.image || !instruction || state.running) return;
+    const body = { instruction, ...(state.image.kind === "upload" ? { image_id: state.image.id } : { sample_id: state.image.id }) };
+    resetRun();
+    setRunning(true);
+    renderHero(); renderGrid();
+    $("route-box").classList.remove("hidden");
+    $("route-box").innerHTML = '<div class="thinking"><span class="spinner"></span>Reading your request</div>';
+    $("progress").classList.add("hidden");
+    let job;
     try {
-      const job = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      renderProgress({ status: "queued", progress: Object.fromEntries(job.models.map((m) => [m, "queued"])), done: 0, total: job.models.length });
-      showLive(true);
-      let status;
-      for (let attempt = 0; attempt < 2400; attempt++) {       // about 15 minutes at most
-        await sleep(attempt < 10 ? 250 : 400);
-        status = await api(`/api/jobs/${job.job_id}`);
-        renderProgress(status);
-        if (status.status === "done" || status.status === "error") break;
-      }
-      if (!status || status.status !== "done") throw new Error(status && status.error ? status.error : "the job did not finish");
-      showResult(status.result, true);
-      const url = new URL(window.location.href);
-      url.search = `?run=${status.result.run_id}`;
-      history.replaceState(null, "", url);
+      job = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     } catch (error) {
-      toast("Run failed", error.message);
-      $("#progress-text").textContent = "Failed";
-    } finally {
-      showLive(false);
-      state.running = false;
-      button.classList.remove("loading");
-      $("#run-label").textContent = "Run Models";
-      const spinner = button.querySelector(".spinner");
-      if (spinner) spinner.outerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
-      updateRunButton();
-    }
-  }
-
-  function renderProgress(job) {
-    const names = state.modelNames || {};
-    const total = job.total || Object.keys(job.progress).length || 1;
-    const pct = job.status === "done" ? 100 : Math.max(4, Math.round((job.done / total) * (job.status === "scoring" ? 100 : 92)));
-    $("#progress-bar").style.width = `${pct}%`;
-    $("#progress-count").textContent = `${job.done}/${total}`;
-    $("#progress-text").textContent = {
-      queued: "Queued…", running: "Running candidate models…", scoring: "Scoring edits against the original…",
-      done: "Done", error: "Failed",
-    }[job.status] || job.status;
-    $("#model-states").innerHTML = Object.entries(job.progress).map(([id, st]) =>
-      `<div class="model-state ${esc(st)}"><span class="st"></span><span>${esc(names[id] || id)}</span></div>`).join("");
-    // the live panel in the results column
-    $("#live-title").textContent = job.status === "scoring" ? "Scoring every edit against the original…" : "Running candidate models…";
-    $("#live-count").textContent = `${job.done}/${total}`;
-    const src = state.image && state.image.url ? esc(`--src:url(${JSON.stringify(state.image.url)})`) : "";
-    $("#live-grid").innerHTML = Object.entries(job.progress).map(([id, st]) =>
-      `<div class="live-card ${esc(st)}"><div class="ph ${st === "ok" || st === "failed" ? "" : "skeleton"}" style="${src}"></div><div class="nm"><span class="st"></span><span>${esc(names[id] || id)}</span></div></div>`).join("");
-  }
-
-  function showLive(on) {
-    $("#live").classList.toggle("hidden", !on);
-    if (on) {
-      $("#empty-state").classList.add("hidden");
-      $("#results").classList.add("hidden");
-    } else if (!state.result) {
-      $("#empty-state").classList.remove("hidden");
-    } else {
-      $("#results").classList.remove("hidden");
-    }
-  }
-
-  // ---------------------------------------------------------------- results
-  function showResult(result, scroll) {
-    state.result = result;
-    state.filter = "all";
-    $("#empty-state").classList.add("hidden");
-    $("#results").classList.remove("hidden");
-    renderHero();
-    renderStats();
-    renderFilters();
-    renderGrid();
-    renderTable();
-    if (scroll && window.innerWidth < 1080) $("#results").scrollIntoView({ behavior: "smooth" });
-  }
-
-  function sameAspect(a, b) {
-    if (!a || !b || !a.width || !b.width) return false;
-    return Math.abs(Math.log((a.width / a.height) / (b.width / b.height))) < 0.02;
-  }
-
-  function compareHtml(original, candidate, maxHeight) {
-    const ratio = `${candidate.width} / ${candidate.height}`;
-    if (!sameAspect(original, candidate)) {
-      return `<div class="side-by-side">
-        <figure><img src="${esc(original.url)}" alt="Original"><figcaption>Original · ${original.width}×${original.height}</figcaption></figure>
-        <figure class="${candidate.transparent ? "checker" : ""}"><img src="${esc(candidate.image_url)}" alt="${esc(candidate.name)} output"><figcaption>${esc(candidate.name)} · ${candidate.width}×${candidate.height}</figcaption></figure>
-      </div>`;
-    }
-    return `<div class="compare ${candidate.transparent ? "checker" : ""}" style="aspect-ratio:${ratio};max-height:${maxHeight};margin:0 auto;max-width:calc(${maxHeight} * ${candidate.width / candidate.height})">
-      <img class="after" src="${esc(candidate.image_url)}" alt="${esc(candidate.name)} output">
-      <img class="before" src="${esc(original.url)}" alt="Original">
-      <div class="handle"></div>
-      <span class="tag l">Original</span><span class="tag r">${esc(candidate.name)}</span>
-      <input type="range" min="0" max="100" value="50" aria-label="Compare original and edited image">
-    </div>`;
-  }
-
-  function bindCompare(root) {
-    $$(".compare", root).forEach((box) => {
-      const input = $("input[type=range]", box);
-      const set = (v) => box.style.setProperty("--pos", `${v}%`);
-      input.addEventListener("input", () => set(input.value));
-      set(input.value);
-    });
-  }
-
-  function breakdownHtml(candidate) {
-    const p = candidate.proxy || {};
-    const rows = [["Alignment", p.alignment], ["Quality", p.quality], ["Fidelity", p.fidelity]];
-    return rows.map(([label, value]) => {
-      const v = Number.isFinite(value) ? value : 0;
-      const width = Math.min(50, Math.abs(v) * 50);
-      return `<div class="brow"><span>${label}</span><div class="dbar"><i class="${v >= 0 ? "pos" : "neg"}" style="width:${width}%"></i></div><span class="val">${fmtGain(value)}</span></div>`;
-    }).join("");
-  }
-
-  function renderHero() {
-    const r = state.result, best = r.best, hero = $("#hero");
-    const original = r.original;
-    if (!best) {
-      hero.innerHTML = `<div class="hero-info"><h2>No candidate produced an image</h2><p class="muted">Every model failed for this request; see the cards below for the errors.</p></div>`;
+      setRunning(false);
+      $("route-box").classList.add("hidden");
+      toast(error.message);
       return;
     }
-    const gain = best.score ? best.score.gain : null;
-    const scorerLabel = r.scorer.kind === "reward_model" ? r.scorer.label : "Proxy score";
-    const beat = r.counts.beat_original;
-    const bench = best.benchmark;
-    const notices = [
-      r.scorer.kind !== "reward_model" ? esc(r.scorer.fallback_reason || "Scored by the heuristic proxy, not EditReward.") : "",
-      beat === 0 ? "No candidate beat the unedited photo: the best one is shown, but keeping the original may be the right call." : "",
-    ].filter(Boolean);
+    const jobId = job.job_id;
+    state.jobId = jobId;
+    acceptJob(job);
+    renderRouteBox(job.understood);
+    $("progress").classList.remove("hidden");
+    requestAnimationFrame(tick);
+    while (state.jobId === jobId && ACTIVE.includes(state.job.status)) {
+      await sleep(POLL_MS);
+      if (state.jobId !== jobId) return;
+      try {
+        acceptJob(await api(`/api/jobs/${jobId}`));
+      } catch (error) {
+        toast(error.message);
+        break;
+      }
+    }
+    if (state.jobId !== jobId) return;
+    setRunning(false);
+    if (state.job.status === "error") toast(state.job.error || "the job failed");
+    await sleep(FINISH_MS + 60);          // let the last bar reach 100%
+    if (state.jobId !== jobId) return;
+    finishRun();
+  }
+
+  // the run is over: open the best edit in the slider, move the cards into rank order
+  function finishRun() {
+    const best = state.job.candidates.find((c) => c.best);
+    if (best && !state.selected) state.selected = best.model;
+    updateOverall();
+    renderHero();
+    const before = new Map([...document.querySelectorAll("#grid .card")].map((el) => [el.id, el.getBoundingClientRect()]));
+    state.ranked = true;
+    renderGrid();
+    document.querySelectorAll("#grid .card").forEach((el, index) => {
+      const old = before.get(el.id);
+      if (!old) return;
+      const now = el.getBoundingClientRect();
+      const dx = old.left - now.left;
+      const dy = old.top - now.top;
+      if (!dx && !dy) return;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+        { duration: 700, delay: index * 40, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "backwards" });
+    });
+  }
+
+  function acceptJob(job) {
+    const before = state.job;
+    state.job = job;
+    state.polledAt = performance.now();
+    const changed = !before || job.candidates.some((c, index) => !before.candidates[index] || before.candidates[index].status !== c.status || before.candidates[index].rank !== c.rank || before.candidates[index].best !== c.best);
+    job.candidates.forEach((candidate) => {
+      const bar = state.bars[candidate.model] || (state.bars[candidate.model] = { progress: 0, finishedAt: null });
+      if (isDone(candidate) && bar.finishedAt === null) bar.finishedAt = performance.now();
+    });
+    if (changed) renderGrid();
+    updateOverall();
+  }
+
+  // one animation loop while a job runs: the bar of the running model and the short finish of the one just done
+  function tick() {
+    const job = state.job;
+    if (!job) return;
+    let active = ACTIVE.includes(job.status);
+    job.candidates.forEach((candidate) => {
+      const bar = state.bars[candidate.model];
+      if (candidate.status === "running") {
+        bar.progress = progressAt(elapsedNow(candidate), candidate.estimate);
+        updateCard(candidate, bar);
+      } else if (bar.finishedAt !== null && !bar.shown) {
+        const k = Math.min(1, (performance.now() - bar.finishedAt) / FINISH_MS);
+        const from = bar.from ?? (bar.from = bar.progress);
+        bar.progress = from + (1 - from) * (1 - Math.pow(1 - k, 3));
+        updateCard(candidate, bar);
+        active = true;
+        if (k >= 1) { bar.shown = true; renderGrid(); }
+      }
+    });
+    if (active) requestAnimationFrame(tick);
+  }
+
+  // the bar under the Process button: all models together; it goes away when the run is over
+  function updateOverall() {
+    const job = state.job;
+    if (!job) return;
+    const all = job.candidates;
+    const finished = all.filter(isDone).length;
+    const total = all.reduce((sum, c) => sum + c.estimate, 0) || 1;
+    const doneTime = all.reduce((sum, c) => sum + (isDone(c) ? c.estimate : c.status === "running" ? c.estimate * (state.bars[c.model]?.progress || 0) : 0), 0);
+    $("progress").classList.toggle("hidden", !ACTIVE.includes(job.status));
+    $("progress-bar").style.width = `${Math.min(100, 100 * doneTime / total)}%`;
+    $("progress-count").textContent = `${finished} / ${all.length}`;
+    const current = all.find((c) => c.status === "running");
+    $("progress-text").textContent = job.status === "waiting" ? "Waiting for another request" : current ? `Running ${current.name}` : "Starting";
+  }
+
+  // ---------------------------------------------------------------- big frame: the photo, or the slider
+  function renderHero() {
+    const hero = $("hero");
+    hero.classList.add("solo");
+    if (!state.image) {
+      hero.innerHTML = `<div class="hero-media"><div class="hero-empty">Upload a photo or pick a sample on the left.</div></div>`;
+      state.heroModel = null;
+      return;
+    }
+    const ratio = state.image.width && state.image.height ? state.image.width / state.image.height : 1.5;
+    const sizing = `aspect-ratio:${ratio};max-height:50vh;max-width:calc(50vh * ${ratio})`;    // leaves the cards in view
+    const candidate = state.job?.candidates.find((c) => c.model === state.selected && c.status === "ok");
+    if (!candidate) {
+      hero.innerHTML = `<div class="hero-media"><div class="compare" style="${sizing}"><img class="only" src="${esc(state.image.url)}" alt="Original photo"><span class="tag l">Original</span></div></div>`;
+      state.heroModel = null;
+      return;
+    }
+    const original = state.job.original?.url || state.image.url;
+    const done = state.job.candidates.filter((c) => c.status === "ok").length;
     hero.innerHTML = `
-      <div class="hero-media">${compareHtml(original, best, "62vh")}</div>
-      <div class="hero-info">
-        <div class="hero-block hero-head">
-          <div class="hero-tags">
-            <span class="crown">${ICONS.crown} Best edit</span>
-            <span class="badge ${best.backend}">${best.backend.toUpperCase()}</span>
-          </div>
-          <div>
-            <h2>${esc(best.name)}</h2>
-            <div class="sub">${esc(best.date)} · ${best.categories.map((c) => CATEGORY_LABELS[c] || c).join(", ")}</div>
-          </div>
-          ${r.instruction ? `<p class="prompt-echo">${esc(r.instruction)}</p>` : ""}
+      <div class="hero-media">
+        <div class="compare${candidate.transparent ? " checker" : ""}" style="${sizing}">
+          <img src="${esc(candidate.image_url)}" alt="${esc(candidate.name)} edit">
+          <img class="before" src="${esc(original)}" alt="Original">
+          <div class="handle"></div>
+          <span class="tag l">Original</span><span class="tag r">Edited</span>
+          <input type="range" min="0" max="100" value="50" aria-label="Before and after">
         </div>
-        <div class="hero-block hero-score">
-          <div class="score-big">
-            <span class="v ${gainClass(gain)}">${fmtGain(gain)}</span>
-            <span class="l">${esc(scorerLabel)} gain<br>vs. the unedited photo</span>
-          </div>
-          <dl class="kv" style="margin-top:16px">
-            <div><dt>Latency</dt><dd>${fmtMs(best.elapsed_ms)}</dd></div>
-            <div><dt>VRAM</dt><dd>${fmtGb(best.vram_gb_estimate)}</dd></div>
-            <div><dt>Output</dt><dd>${best.width}×${best.height}</dd></div>
-          </dl>
-        </div>
-        <div class="hero-block">
-          <div class="block-label">Score breakdown</div>
-          <div class="breakdown">${breakdownHtml(best)}</div>
-          ${bench ? `<div class="bench" style="margin-top:12px">Kaggle T4 benchmark · EditReward gain <b class="${gainClass(bench.editreward_gain)} g">${fmtGain(bench.editreward_gain)}</b>, win rate ${Math.round((bench.editreward_win_rate || 0) * 100)}%${bench.seconds_per_image_t4 ? ", " + bench.seconds_per_image_t4.toFixed(2) + " s/image" : ""} (n=${bench.ok})</div>` : ""}
-        </div>
-        ${notices.length || best.note ? `<div class="hero-block hero-notices">
-          ${notices.map((n) => `<div class="notice">${n}</div>`).join("")}
-          ${best.note ? `<div class="note">${esc(best.note)}</div>` : ""}
-        </div>` : ""}
-        <div class="hero-block hero-actions-block">
-          <div class="hero-actions">
-            <a class="btn primary" href="${esc(best.image_url)}" download="${esc(best.model_id)}-${esc(r.run_id.slice(0, 8))}">${ICONS.download} Download</a>
-            <button class="btn" type="button" id="hero-zoom">${ICONS.zoom} Inspect</button>
-            <button class="btn" type="button" id="hero-link">${ICONS.link} Copy link</button>
-          </div>
-        </div>
+        <div class="hero-line"><span>Model <b>${esc(candidate.name)}</b></span><span>Score <b class="g">${candidate.score.toFixed(2)}</b></span><span>Latency <b>${candidate.seconds.toFixed(1)} s</b></span><span>Rank <b>${candidate.rank ? `${candidate.rank} / ${done}` : "-"}</b></span></div>
       </div>`;
-    bindCompare(hero);
-    $("#hero-zoom").addEventListener("click", () => openModal(best.model_id));
-    $("#hero-link").addEventListener("click", async () => {
-      const url = `${location.origin}/?run=${r.run_id}`;
-      try { await navigator.clipboard.writeText(url); toast("Link copied", url, "ok"); } catch (_) { toast("Link", url, "ok"); }
-    });
+    const box = hero.querySelector(".compare");
+    const range = hero.querySelector("input[type=range]");
+    range.addEventListener("input", () => box.style.setProperty("--pos", `${range.value}%`));
+    if (state.heroModel !== candidate.model) {     // a new edit: the divider sweeps in from the right
+      const start = performance.now();
+      const sweep = (now) => {
+        const k = Math.min(1, (now - start) / SWEEP_MS);
+        const position = 100 - 50 * (1 - Math.pow(1 - k, 3));
+        box.style.setProperty("--pos", `${position}%`);
+        range.value = position;
+        if (k < 1 && box.isConnected) requestAnimationFrame(sweep);
+      };
+      requestAnimationFrame(sweep);
+    }
+    state.heroModel = candidate.model;
   }
 
-  function renderStats() {
-    const r = state.result, c = r.counts;
-    const items = [
-      ["Candidates", `${c.ok}<small> / ${c.models} ok</small>`],
-      ["Beat original", `${c.beat_original}<small> / ${c.ok}</small>`],
-      ["Real · Mock", `${c.real}<small> · ${c.mock}</small>`],
-      ["Total time", fmtMs(r.timings_ms.total)],
-      ["Primary task", esc(CATEGORY_LABELS[r.route.primary] || r.route.primary)],
-    ];
-    $("#stats").innerHTML = items.map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  // ---------------------------------------------------------------- result cards
+  // running order (fastest first) while the job runs, rank order after it (failed models last)
+  function displayOrder(candidates) {
+    if (!state.ranked) return candidates;
+    return [...candidates].sort((a, b) => (a.rank || 999) - (b.rank || 999));
   }
-
-  function renderFilters() {
-    const counts = {};
-    state.result.candidates.forEach((c) => c.categories.forEach((cat) => { counts[cat] = (counts[cat] || 0) + 1; }));
-    const keys = ["all", ...Object.keys(CATEGORY_LABELS).filter((k) => counts[k])];
-    $("#filters").innerHTML = keys.map((k) => `<button class="chip ${state.filter === k ? "active" : ""}" data-filter="${k}">${k === "all" ? "All" : CATEGORY_LABELS[k]}<span class="count">${k === "all" ? state.result.candidates.length : counts[k]}</span></button>`).join("");
-    $$("#filters .chip").forEach((chip) => chip.addEventListener("click", () => {
-      state.filter = chip.dataset.filter;
-      renderFilters();
-      renderGrid();
-    }));
-  }
-
-  function sortedCandidates() {
-    let list = state.result.candidates.slice();
-    if (state.filter !== "all") list = list.filter((c) => c.categories.includes(state.filter));
-    const gain = (c) => (c.score && Number.isFinite(c.score.gain)) ? c.score.gain : -Infinity;
-    if (state.sort === "speed") list.sort((a, b) => (a.status === "ok" ? 0 : 1) - (b.status === "ok" ? 0 : 1) || a.elapsed_ms - b.elapsed_ms);
-    else if (state.sort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
-    else list.sort((a, b) => gain(b) - gain(a));
-    return list;
-  }
-
   function renderGrid() {
-    const list = sortedCandidates();
-    state.visible = list.map((c) => c.model_id);
-    const winner = state.result.best ? state.result.best.model_id : null;
-    // bento: when ranking by score, the top candidate of the current view gets a 2×2 tile
-    const featureId = state.sort === "score" && list.length > 2 && list[0].status === "ok" ? list[0].model_id : null;
-    $("#grid").innerHTML = list.map((c, i) => {
-      const gain = c.score ? c.score.gain : null;
-      const rankClass = c.rank && c.rank <= 3 ? `r${c.rank}` : "";
-      const feature = c.model_id === featureId;
-      const media = c.status === "ok"
-        ? `<img class="loading" src="${esc(feature ? c.image_url : c.thumb_url)}" alt="${esc(c.name)} output" loading="lazy">`
-        : `<div class="err">${ICONS.close.replace("<svg ", '<svg width="18" height="18" ')}<span>${esc(c.error || "failed")}</span></div>`;
-      return `<article class="card ${feature ? "feature" : ""} ${c.model_id === winner ? "winner" : ""} ${c.status !== "ok" ? "failed" : ""}" tabindex="0" data-id="${esc(c.model_id)}" style="animation-delay:${Math.min(i, 12) * 30}ms">
-        <div class="media ${c.transparent ? "checker" : ""} ${c.status === "ok" ? "loading-bg" : ""}"${feature ? ` style="${esc(`--src:url(${JSON.stringify(c.thumb_url)})`)}"` : ""}>${media}
-          ${c.rank ? `<span class="rank ${rankClass}">#${c.rank}</span>` : ""}
-          <div class="badges">${c.status !== "ok" ? '<span class="badge failed">FAILED</span>' : `<span class="badge ${c.backend}">${c.backend.toUpperCase()}</span>`}</div>
-        </div>
-        <div class="body">
-          <div class="title"><b title="${esc(c.name)}">${esc(c.name)}</b><span class="g ${gainClass(gain)}">${fmtGain(gain)}</span></div>
-          <div class="meta">
-            <span class="badge cat">${esc(c.categories.map((x) => CATEGORY_LABELS[x] || x).join(" · "))}</span>
-            <span title="Processing time">${ICONS.clock}${fmtMs(c.elapsed_ms)}</span>
-            <span title="Weights in fp16 (VRAM estimate)">${ICONS.chip}${fmtGb(c.vram_gb_estimate)}</span>
-          </div>
-          ${c.status === "ok" ? `<div class="bars">${["alignment", "quality", "fidelity"].map((k) => {
-            const v = c.proxy ? c.proxy[k] : 0;
-            return `<div class="mini"><span>${k}</span><div class="dbar"><i class="${v >= 0 ? "pos" : "neg"}" style="width:${Math.min(50, Math.abs(v) * 50)}%"></i></div><span class="val">${fmtGain(v)}</span></div>`;
-          }).join("")}</div>` : ""}
-        </div>
-      </article>`;
-    }).join("") || '<div class="empty-grid">No candidate in this category.</div>';
-    $$("#grid .card").forEach((card) => {
-      const open = () => { if (!card.classList.contains("failed")) openModal(card.dataset.id); };
-      card.addEventListener("click", open);
-      card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-      card.addEventListener("pointermove", (e) => {
-        const box = card.getBoundingClientRect();
-        card.style.setProperty("--mx", `${e.clientX - box.left}px`);
-        card.style.setProperty("--my", `${e.clientY - box.top}px`);
-      });
+    const grid = $("grid");
+    const job = state.job;
+    if (!job) { grid.innerHTML = ""; return; }
+    grid.innerHTML = "";
+    displayOrder(job.candidates).forEach((c) => {
+      const bar = state.bars[c.model] || { progress: 0 };
+      const settled = isDone(c) && (bar.shown || bar.finishedAt === null);
+      const shown = settled ? c.status : c.status === "queued" ? "queued" : "running";
+      const el = document.createElement("div");
+      el.id = `card-${c.model}`;
+      el.className = `card ${shown === "ok" ? "done" : shown}${c.best && state.ranked ? " winner" : ""}${state.selected === c.model ? " selected" : ""}${state.appeared.has(c.model) ? "" : " fresh"}`;
+      state.appeared.add(c.model);
+      let media;
+      let body;
+      if (shown === "ok") {
+        const reveal = state.revealed.has(c.model) ? "" : "reveal";
+        state.revealed.add(c.model);
+        media = `<div class="media${c.transparent ? " checker" : ""}"><span class="rank r${c.rank}">#${c.rank}</span><img class="${reveal}" src="${esc(c.thumb_url)}" alt="">
+          <a class="dl" href="${esc(c.image_url)}" download title="Download" aria-label="Download the ${esc(c.name)} edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5"/><path d="M5 19h14"/></svg></a></div>`;
+        body = `<div class="line"><b>${esc(c.name)}</b><span class="t">${c.seconds.toFixed(1)} s</span><span class="g">${c.score.toFixed(2)}</span></div>`;
+        el.setAttribute("role", "button");
+        el.tabIndex = 0;
+        el.setAttribute("aria-label", `Compare ${c.name} with the original`);
+        el.addEventListener("click", (event) => {
+          if (event.target.closest(".dl")) return;     // the download link works on its own
+          state.selected = c.model;
+          renderHero(); renderGrid();
+          $("hero").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+        el.addEventListener("keydown", (event) => {
+          if (event.target !== el || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          el.click();
+        });
+      } else if (shown === "failed") {
+        media = `<div class="media"><div class="err">${esc(c.error || "no image")}</div></div>`;
+        body = `<div class="line"><b>${esc(c.name)}</b><span class="t">failed after ${(c.seconds || 0).toFixed(1)} s</span></div>`;
+      } else if (shown === "queued") {
+        media = `<div class="media"><span class="wait">waiting</span></div>`;
+        body = `<div class="title"><b>${esc(c.name)}</b></div><div class="note-line">Usually about ${c.estimate.toFixed(1)} s.</div>`;
+      } else {
+        media = `<div class="media loading-bg"></div>`;
+        body = `<div class="title"><b>${esc(c.name)}</b></div><div class="cbar"><i></i></div><div class="cstatus"><span class="el"></span><span class="pc"></span></div>`;
+      }
+      el.innerHTML = media + `<div class="body">${body}</div>`;
+      grid.appendChild(el);
+      if (shown === "running") updateCard(c, bar);
     });
-    $$("#grid .media img.loading").forEach(revealWhenLoaded);
+  }
+  function updateCard(candidate, bar) {
+    const el = $(`card-${candidate.model}`);
+    if (!el) return;
+    const fill = el.querySelector(".cbar i");
+    if (fill) fill.style.transform = `scaleX(${bar.progress})`;
+    const elapsedText = el.querySelector(".el");
+    const percent = el.querySelector(".pc");
+    if (elapsedText) {
+      const elapsed = candidate.status === "running" ? elapsedNow(candidate) : candidate.seconds || 0;
+      const slow = elapsed > candidate.estimate * 1.15;
+      elapsedText.innerHTML = `${elapsed.toFixed(1)} s of about ${candidate.estimate.toFixed(1)} s${slow ? ' <span class="slow">slower than usual</span>' : ""}`;
+      percent.textContent = `${Math.floor(bar.progress * 100)}%`;
+    }
   }
 
-  // image skeleton: shimmer until the bitmap arrives, then fade the image in
-  function revealWhenLoaded(img) {
-    const done = () => { img.classList.remove("loading"); img.parentElement && img.parentElement.classList.remove("loading-bg"); };
-    if (img.complete && img.naturalWidth) done();
-    else { img.addEventListener("load", done, { once: true }); img.addEventListener("error", done, { once: true }); }
-  }
-
-  function renderTable() {
-    const r = state.result;
-    $("#table-note").textContent = `· ${r.scorer.kind === "reward_model" ? r.scorer.label : "proxy scorer"} · run ${r.run_id.slice(0, 8)}`;
-    const rows = r.candidates.map((c) => {
-      const p = c.proxy || {}, b = c.benchmark || {};
-      return `<tr data-id="${esc(c.model_id)}">
-        <td class="num">${c.rank ?? "—"}</td>
-        <td><b>${esc(c.name)}</b> <span class="faint">${esc(c.date)}</span></td>
-        <td>${esc(c.categories.map((x) => CATEGORY_LABELS[x] || x).join(", "))}</td>
-        <td><span class="badge ${c.status === "ok" ? c.backend : "failed"}">${c.status === "ok" ? c.backend.toUpperCase() : "FAILED"}</span></td>
-        <td class="num g ${gainClass(c.score && c.score.gain)}">${fmtGain(c.score && c.score.gain)}</td>
-        <td class="num">${fmtGain(p.alignment)}</td><td class="num">${fmtGain(p.quality)}</td><td class="num">${fmtGain(p.fidelity)}</td>
-        <td class="num">${fmtMs(c.elapsed_ms)}</td><td class="num">${fmtGb(c.vram_gb_estimate)}</td>
-        <td class="num">${c.width ? `${c.width}×${c.height}` : "—"}</td>
-        <td class="num">${b.editreward_gain != null ? fmtGain(b.editreward_gain) : "—"}</td>
-      </tr>`;
-    }).join("");
-    $("#table").innerHTML = `<thead><tr><th class="num">#</th><th>Model</th><th>Task lists</th><th>Backend</th><th class="num">Gain</th><th class="num">Align</th><th class="num">Quality</th><th class="num">Fidelity</th><th class="num">Time</th><th class="num">VRAM</th><th class="num">Output</th><th class="num" title="EditReward gain on the Kaggle T4 Enhance benchmark">T4 bench</th></tr></thead><tbody>${rows}</tbody>`;
-    $$("#table tbody tr").forEach((tr) => tr.addEventListener("click", () => {
-      const c = r.candidates.find((x) => x.model_id === tr.dataset.id);
-      if (c && c.status === "ok") openModal(c.model_id);
-    }));
-  }
-
-  // ---------------------------------------------------------------- lightbox
-  function openModal(modelId) {
-    const r = state.result;
-    const candidate = r.candidates.find((c) => c.model_id === modelId);
-    if (!candidate || candidate.status !== "ok") return;
-    if ($("#modal").classList.contains("hidden")) state.returnFocus = document.activeElement;
-    state.modalId = modelId;
-    const p = candidate.proxy || {}, m = p.metrics || {};
-    const s = candidate.score || {};
-    const intents = Object.entries(p.intents || {});
-    const pair = (v) => Array.isArray(v) ? `${v[0]} → ${v[1]}` : "—";
-    const modal = $("#modal");
-    modal.innerHTML = `
-      <div class="modal-card">
-        <button class="icon-btn modal-close" type="button" aria-label="Close">${ICONS.close}</button>
-        <div class="modal-media">${compareHtml(r.original, candidate, "78vh")}</div>
-        <div class="modal-side">
-          <div>
-            ${candidate.rank ? `<span class="rank ${candidate.rank <= 3 ? "r" + candidate.rank : ""}" style="position:static;display:inline-grid;margin-bottom:10px">#${candidate.rank}</span>` : ""}
-            <h3 id="modal-title">${esc(candidate.name)}</h3>
-            <div class="faint" style="font-size:12px;margin-top:6px;display:flex;gap:8px;align-items:center">${esc(candidate.date)} <span class="badge ${candidate.backend}">${candidate.backend.toUpperCase()}</span></div>
-          </div>
-          <div class="score-big"><span class="v ${gainClass(s.gain)}">${fmtGain(s.gain)}</span><span class="l">gain (${esc(s.scorer || "")})<br>raw ${s.raw != null ? Number(s.raw).toFixed(3) : "—"} · baseline ${s.baseline != null ? Number(s.baseline).toFixed(3) : "—"}</span></div>
-          <div><div class="block-label">Score breakdown</div><div class="breakdown">${breakdownHtml(candidate)}</div></div>
-          ${intents.length ? `<div><div class="block-label">Per-intent alignment</div>${intents.map(([k, v]) => `<div class="brow"><span class="intent" style="justify-self:start">${esc(k === "_generic" ? "general" : k)}</span><div class="dbar"><i class="${v >= 0 ? "pos" : "neg"}" style="width:${Math.min(50, Math.abs(v) * 50)}%"></i></div><span class="val">${fmtGain(v)}</span></div>`).join("")}</div>` : ""}
-          <div><div class="block-label">Metrics · original → edit</div><table class="metrics">
-            <tr><td class="muted">Latency</td><td>${fmtMs(candidate.elapsed_ms)}</td></tr>
-            <tr><td class="muted">VRAM estimate (fp16 weights)</td><td>${fmtGb(candidate.vram_gb_estimate)}</td></tr>
-            <tr><td class="muted">Size</td><td>${pair((m.size || []).map((x) => x.join("×")))}</td></tr>
-            <tr><td class="muted">Luminance</td><td>${pair(m.luminance)}</td></tr>
-            <tr><td class="muted">Sharpness</td><td>${pair(m.sharpness)}</td></tr>
-            <tr><td class="muted">Colourfulness</td><td>${pair(m.colorfulness)}</td></tr>
-            <tr><td class="muted">Noise</td><td>${pair(m.noise)}</td></tr>
-            <tr><td class="muted">Structure corr.</td><td>${p.structure_correlation ?? "—"}</td></tr>
-            ${candidate.benchmark ? `<tr><td class="muted">T4 bench EditReward gain</td><td>${fmtGain(candidate.benchmark.editreward_gain)}</td></tr><tr><td class="muted">T4 s / image</td><td>${candidate.benchmark.seconds_per_image_t4 ? candidate.benchmark.seconds_per_image_t4.toFixed(2) : "—"}</td></tr>` : ""}
-          </table></div>
-          ${candidate.note ? `<div class="note" style="margin:0">${esc(candidate.note)}</div>` : ""}
-          <div class="hero-actions">
-            <a class="btn primary" href="${esc(candidate.image_url)}" download="${esc(candidate.model_id)}-${esc(r.run_id.slice(0, 8))}">${ICONS.download} Download</a>
-            <a class="btn" href="${esc(candidate.image_url)}" target="_blank" rel="noopener">Full size ↗</a>
-          </div>
-          <div class="modal-nav"><button class="btn" type="button" data-step="-1" aria-label="Previous candidate">← Prev</button><button class="btn" type="button" data-step="1" aria-label="Next candidate">Next →</button><span class="esc"><span class="kbd">←</span><span class="kbd">→</span> browse · <span class="kbd">esc</span></span></div>
-        </div>
-      </div>`;
-    modal.classList.remove("hidden");
-    document.body.style.overflow = "hidden";
-    bindCompare(modal);
-    $(".modal-close", modal).addEventListener("click", closeModal);
-    $$("[data-step]", modal).forEach((b) => b.addEventListener("click", () => stepModal(Number(b.dataset.step))));
-    $(".modal-close", modal).focus();
-  }
-
-  function stepModal(delta) {
-    const r = state.result;
-    const order = (state.visible.length ? state.visible : r.candidates.map((c) => c.model_id))
-      .filter((id) => (r.candidates.find((c) => c.model_id === id) || {}).status === "ok");
-    if (!order.length) return;
-    const current = Math.max(0, order.indexOf(state.modalId));
-    const next = order[(current + delta + order.length) % order.length];
-    openModal(next);
-  }
-
-  function closeModal() {
-    const modal = $("#modal");
-    modal.classList.add("hidden");
-    modal.innerHTML = "";
-    document.body.style.overflow = "";
-    if (state.returnFocus && document.contains(state.returnFocus)) state.returnFocus.focus({ preventScroll: true });
-    state.returnFocus = null;
-  }
-
-  // ---------------------------------------------------------------- init
-  async function init() {
-    bindDropzone();
-    $("#quick-tags").innerHTML = QUICK_TAGS.map((t) => `<button class="chip" type="button" data-tag="${esc(t)}">${esc(t)}</button>`).join("");
-    $$("#quick-tags .chip").forEach((chip) => chip.addEventListener("click", () => { setInstruction(chip.dataset.tag); $("#instruction").focus(); }));
-    $("#instruction").addEventListener("input", onInstruction);
-    $("#instruction").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } });
-    $("#run-btn").addEventListener("click", run);
-    $$("#sorts button").forEach((b) => b.addEventListener("click", () => {
-      state.sort = b.dataset.sort;
-      $$("#sorts button").forEach((x) => x.classList.toggle("active", x === b));
-      renderGrid();
-    }));
-    $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
-    document.addEventListener("keydown", (e) => {
-      if ($("#modal").classList.contains("hidden")) {
-        const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
-        if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey) { e.preventDefault(); $("#instruction").focus(); }
+  // ---------------------------------------------------------------- rankings: drawn again each time the tab opens
+  async function showRankings() {
+    if (!state.rankings) {
+      try {
+        state.rankings = await api("/api/rankings");
+      } catch (error) {
+        toast(error.message);
         return;
       }
-      if (e.key === "Tab") {                                   // keep focus inside the dialog
-        const nodes = $$('button, a[href], input, [tabindex]:not([tabindex="-1"])', $("#modal")).filter((n) => n.offsetParent !== null);
-        if (nodes.length) {
-          const first = nodes[0], last = nodes[nodes.length - 1];
-          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-        }
-      }
-      if (e.key === "Escape") closeModal();
-      if (e.key === "ArrowRight" && e.target.type !== "range") stepModal(1);
-      if (e.key === "ArrowLeft" && e.target.type !== "range") stepModal(-1);
-    });
-
-    const [health, models, samples] = await Promise.allSettled([api("/api/health"), api("/api/models"), api("/api/samples")]);
-    if (health.status === "fulfilled") {
-      const h = health.value;
-      $("#pill-device").innerHTML = `<span class="dot ok"></span>Device <b>${esc(h.device.toUpperCase())}</b>`;
-    } else {
-      $("#pill-device").innerHTML = '<span class="dot bad"></span>Server <b>offline</b>';
-      toast("Server unreachable", "Start it with: python apps/web/run.py");
     }
-    if (models.status === "fulfilled") {
-      state.modelNames = Object.fromEntries(models.value.models.map((m) => [m.id, m.name]));
-      const real = models.value.models.filter((m) => m.backend === "real").length;
-      $("#pill-models").innerHTML = `<span class="dot ok"></span><b>${models.value.models.length}</b> models · ${real} real`;
-    }
-    state.samples = samples.status === "fulfilled" ? samples.value.samples : [];
-    renderSamples();
-    renderCollage(state.samples);
-    onInstruction();
-
-    const params = new URLSearchParams(location.search);
-    if (params.get("run")) {
-      try {
-        const result = await api(`/api/runs/${encodeURIComponent(params.get("run"))}`);
-        showResult(result, false);
-        // put the run's photo and instruction back in the controls, so it can be tweaked and run again
-        const o = result.original;
-        if (o.sample_id) selectSample(o.sample_id, false);
-        else if (o.image_id) setImage({ kind: "upload", id: o.image_id, url: o.source_url, name: "Uploaded photo", width: o.width, height: o.height });
-        setInstruction(result.instruction);
-      } catch (error) { toast("Run not found", error.message); }
-    }
-    if (params.get("sample")) selectSample(params.get("sample"), !params.get("instruction"));
-    if (params.get("instruction")) setInstruction(params.get("instruction"));
-    if (params.get("autorun") === "1" && state.image) run();
-    window.EJ.ready = true;
+    $("rank-grid").innerHTML = state.rankings.tasks.map((task, card) => {
+      const rows = task.rows.map((row, index) => `<tr class="${row.place === 1 ? "p1" : ""}" style="--r:${index}">
+        <td><span class="pos">${row.place}</span><b>${esc(row.name)}</b>${row.live ? '<span class="live-dot" title="Runs in the live demo" aria-label="Runs in the live demo"></span>' : ""}</td>
+        <td class="num">${row.score.toFixed(2)}</td><td class="num">${row.estimate.toFixed(2)}</td></tr>`).join("");
+      return `<section class="surface rank-card" style="--i:${card}"><h3>${esc(task.label)}</h3><div class="table-scroll"><table class="lb">
+        <thead><tr><th>Model</th><th class="num">Score</th><th class="num" title="estimated on an A30 GPU">s/image</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    }).join("");
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    init().catch((error) => { console.error(error); toast("Startup error", error.message); });
-  });
+  // ---------------------------------------------------------------- dataset: the figures of the reports
+  // Each block fades up when it scrolls into view, then its figure draws itself (bars grow, cells and points appear).
+  function columns(rows) {
+    const top = Math.max(...rows.map((row) => row[1]));
+    return `<div class="vbars">${rows.map(([label, count], index) => `<div class="vbar" style="--i:${index}"><span class="v">${compact(count)}</span><span class="col"><i style="--h:${(100 * count / top).toFixed(1)}%"></i></span><span class="k">${esc(label)}</span></div>`).join("")}</div>`;
+  }
+  function donut(parts, colors, unit) {
+    const total = parts.reduce((sum, part) => sum + part[1], 0);
+    const circle = 2 * Math.PI * 42;
+    let offset = 0;
+    const segments = parts.map(([, count], index) => {
+      const length = circle * count / total;
+      const svg = `<circle class="seg" r="42" cx="60" cy="60" style="--len:${length.toFixed(2)};--off:${(-offset).toFixed(2)};--i:${index};stroke:${colors[index]}"/>`;
+      offset += length;
+      return svg;
+    }).join("");
+    return `<div class="donut-row"><div class="donut"><svg viewBox="0 0 120 120"><circle class="ring" r="42" cx="60" cy="60"/>${segments}</svg>
+      <div class="donut-c"><b data-to="${total}">0</b><span>${esc(unit)}</span></div></div>
+      <div class="legend">${parts.map(([label, count], index) => `<span><i style="background:${colors[index]}"></i>${esc(label)}<b>${fmt(count)}</b></span>`).join("")}</div></div>`;
+  }
+  function pipeline(groups) {
+    let index = 0;
+    const group = (block, number) => `<div class="pipe-group" style="--g:${number}"><div class="pipe-title">${esc(block.group)}</div><div class="pipe-row">${block.steps.map(([title, detail]) =>
+      `<div class="pipe-step" style="--i:${index++}"><b>${esc(title)}</b><span>${esc(detail)}</span></div>`).join("")}</div></div>`;
+    return `<div class="pipe2">${groups.map((block, number) => group(block, number)).join('<div class="pipe-link" aria-hidden="true"></div>')}</div>`;
+  }
+  function heatmap(categories) {
+    const counts = categories.counts;
+    const max = Math.max(...Object.values(counts).flat());
+    const strength = (count) => (count ? Math.log(count + 1) / Math.log(max + 1) : 0);
+    const head = `<span></span>${categories.operations.map(([, short]) => `<span class="hd">${esc(short)}</span>`).join("")}<span class="hd">All</span>`;
+    const rows = categories.subjects.map((subject, row) => {
+      const cells = categories.operations.map(([operation], column) => {
+        const count = counts[operation][row];
+        const alpha = strength(count);
+        return `<span class="cell${count ? "" : " zero"}${alpha > 0.62 ? " dark" : ""}" style="--a:${(0.08 + 0.92 * alpha).toFixed(2)};--d:${row + column}" title="${esc(operation)}, ${esc(subject)}: ${fmt(count)}">${count || ""}</span>`;
+      }).join("");
+      const total = categories.operations.reduce((sum, [operation]) => sum + counts[operation][row], 0);
+      return `<span class="rk">${esc(subject.replace("/", ", ").replace("-", " "))}</span>${cells}<span class="tot">${fmt(total)}</span>`;
+    }).join("");
+    const totals = `<span class="rk"><b>All</b></span>${categories.operations.map(([operation]) => `<span class="tot col-total">${compact(counts[operation].reduce((sum, count) => sum + count, 0))}</span>`).join("")}<span class="tot">${compact(categories.labels)}</span>`;
+    return `<div class="heat">${head}${rows}${totals}</div>`;
+  }
+  function share(categories, operation, subject) {
+    const counts = categories.counts;
+    const total = operation ? counts[operation].reduce((sum, count) => sum + count, 0)
+      : Object.values(counts).reduce((sum, row) => sum + row[categories.subjects.indexOf(subject)], 0);
+    return Math.round(100 * total / categories.labels);
+  }
+  function agreement(rows) {
+    return rows.map(([label, team, chance], index) => `<div class="agree"><div class="agree-k">${esc(label)}</div>
+      <div class="pair"><span class="track"><i class="gx" style="--w:${team}%;--i:${index}"></i><u style="left:${chance}%" title="chance ${chance}%"></u></span><b>${team.toFixed(1)}%</b></div></div>`).join("")
+      + `<div class="agree-note"><u></u>agreement if everyone ranked at random</div>`;
+  }
+  function accuracy(data) {
+    const high = 0.7;
+    const x = (value) => `${(100 * value / high).toFixed(1)}%`;
+    const ticks = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].map((value) => `<span style="left:${x(value)}">${value.toFixed(1)}</span>`).join("");
+    return `<div class="acc"><span></span><span class="ticks">${ticks}</span><span></span>${data.rows.map(([label, value, kind], index) => `<span class="k ${kind}">${esc(label)}</span>
+      <span class="plot"><i class="gx ${kind}" style="--w:${x(value)};--i:${index}"></i><u style="left:${x(data.chance)}"></u></span>
+      <span class="n ${kind}">${value.toFixed(3)}</span>`).join("")}</div>`;
+  }
+  // test accuracy against the time to score one pair; the time axis is logarithmic (each line about 3 times the last)
+  function scatter(points) {
+    const px = (ms) => 46 + (Math.log10(ms) - 1.7) / 2.78 * 334;
+    const py = (value) => 200 - (value - 0.475) / 0.11 * 182;
+    const ticksX = [[100, "0.1 s"], [300, "0.3 s"], [1000, "1 s"], [3000, "3 s"], [10000, "10 s"], [30000, "30 s"]].map(([ms, label]) =>
+      `<line class="grid-line" x1="${px(ms)}" x2="${px(ms)}" y1="12" y2="200"/><text class="axis" x="${px(ms)}" y="213" text-anchor="middle">${label}</text>`).join("");
+    const ticksY = [0.50, 0.55].map((value) => `<line class="grid-line" x1="46" x2="380" y1="${py(value)}" y2="${py(value)}"/><text class="axis" x="40" y="${py(value) + 3}" text-anchor="end">${value.toFixed(2)}</text>`).join("");
+    const dots = points.map((point, index) => {
+      const ours = point.ours ? " ours" : "";
+      const dx = point.label_left ? -8 : 8;
+      return `<circle class="pt${ours}" cx="${px(point.ms).toFixed(1)}" cy="${py(point.accuracy).toFixed(1)}" r="${point.ours ? 6 : 4.5}" style="--i:${index}"/>
+        <text class="lbl${ours}" x="${(px(point.ms) + dx).toFixed(1)}" y="${(py(point.accuracy) + 3).toFixed(1)}" text-anchor="${point.label_left ? "end" : "start"}" style="--i:${index}">${esc(point.name)}</text>`;
+    }).join("");
+    return `<svg class="scatter" viewBox="0 0 400 232" role="img" aria-label="Test accuracy against seconds to score one pair">${ticksX}${ticksY}${dots}
+      <text class="axis-title" x="213" y="229" text-anchor="middle">Seconds to score one pair</text>
+      <text class="axis-title" transform="translate(10 106) rotate(-90)" text-anchor="middle">Test accuracy</text></svg>`;
+  }
+  async function showDataset() {
+    if (!state.dataset) {
+      try {
+        state.dataset = await api("/api/dataset");
+      } catch (error) {
+        toast(error.message);
+        return;
+      }
+    }
+    const data = state.dataset;
+    const stat = (label, value, small = "", decimals = 0) => `<div class="stat"><div class="k">${label}</div><div class="v"><span data-to="${value}" data-dec="${decimals}">0</span>${small ? ` <small>${small}</small>` : ""}</div></div>`;
+    const categories = data.categories;
+    const editsTotal = data.edits_per_sample.reduce((sum, row) => sum + row[1], 0);
+    $("view-dataset").innerHTML = `
+      <section class="stats stats6 anim">${stat("Websites", data.stats.websites)}${stat("Languages", data.stats.languages)}${stat("Images", data.stats.images)}${stat("Tasks", data.stats.tasks)}${stat("Models", data.stats.models)}${stat("Size", data.stats.size_gb, "GB", 1)}</section>
+      <div class="ds-grid">
+        <section class="surface ds-card ds-full anim"><h3>From community posts to the edit assistant</h3>${pipeline(data.pipeline)}</section>
+        <div class="ds-split">
+          <section class="surface ds-card anim"><h3>What people ask for: operation x subject</h3>${heatmap(categories)}
+            <p class="caption">${fmt(categories.labels)} labels of the ${fmt(categories.samples)} samples. Removing is the most common request (<b>${share(categories, "Remove")}%</b>), most requests are about people (<b>${share(categories, null, "Person")}%</b>) or the background (<b>${share(categories, null, "Background")}%</b>).</p></section>
+          <div class="ds-stack">
+            <section class="surface ds-card anim"><h3>Image filters</h3>${donut(data.filters, ["#10b981", "#f59e0b", "#e11d48"], "images")}</section>
+            <section class="surface ds-card anim"><h3>Splits (pairs, by sample)</h3>${donut(data.splits_pairs, ["#2563eb", "#f59e0b", "#db2777"], "pairs")}</section>
+          </div>
+        </div>
+        <section class="surface ds-card anim"><h3>Request length</h3>${columns(data.request_words.bins)}
+          <p class="caption">Words per request, in steps of 10, median <b>${data.request_words.median}</b>.</p></section>
+        <section class="surface ds-card anim"><h3>Edits per sample</h3>${columns(data.edits_per_sample)}
+          <p class="caption">Two thirds of the samples (<b>${Math.round(100 * data.edits_per_sample[0][1] / editsTotal)}%</b>) have exactly two edits.</p></section>
+        <section class="surface ds-card anim"><h3>Team ranking: how often members agree</h3>${agreement(data.agreement)}</section>
+        <section class="surface ds-card ds-wide anim"><h3>The scorer: pairwise accuracy on ${fmt(data.scorer_accuracy.test_pairs)} test pairs</h3>${accuracy(data.scorer_accuracy)}
+          <p class="caption">Red dashed line: a random ranking (${data.scorer_accuracy.chance}). A small head on frozen SigLIP features is level with the 7B editing judges.</p></section>
+        <section class="surface ds-card anim"><h3>Accuracy against speed</h3>${scatter(data.scorer_speed)}
+          <p class="caption">Up is more accurate, left is faster. Ours needs 1.9 GB of GPU memory, the 7B judges 18 to 20 GB.</p></section>
+      </div>`;
+    $("view-dataset").querySelectorAll(".anim").forEach((el) => blockWatcher.observe(el));
+  }
+  // numbers count up from 0 when their block comes into view
+  function countUp(el) {
+    const target = Number(el.dataset.to);
+    const decimals = Number(el.dataset.dec || 0);
+    const start = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - start) / 1200);
+      el.textContent = (target * (1 - Math.pow(1 - k, 3))).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  const blockWatcher = new IntersectionObserver((entries) => entries.forEach((entry) => {
+    if (!entry.isIntersecting) return;
+    entry.target.classList.add("in");
+    entry.target.querySelectorAll("[data-to]").forEach(countUp);
+    blockWatcher.unobserve(entry.target);
+  }), { threshold: 0.12 });
+
+  // ---------------------------------------------------------------- start
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem("ej-theme"); } catch (error) { savedTheme = null; }
+  setTheme(savedTheme === "dark" ? "dark" : "light");
+  fitRequest();
+  renderHero();
+  loadSamples();
+  showView(viewOfHash());
 })();

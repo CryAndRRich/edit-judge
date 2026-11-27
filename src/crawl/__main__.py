@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 
 from .config import RAW_DIR
 from .net import Blocked
-from .sources import SOURCES
-from .sources.base import SourceUnavailable
+from .sites import SOURCES
+from .sites.base import SourceUnavailable
 
 log = logging.getLogger("crawler")
 

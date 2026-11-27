@@ -1,5 +1,6 @@
 """FLUX.2 [klein] 4B (Black Forest Labs, 01/2026; Apache 2.0): a 4B rectified-flow transformer that does
-text-to-image and (multi-)reference image editing in one model, step- and guidance-distilled (MODEL_LIST.md list 1).
+text-to-image and (multi-)reference image editing in one model, step- and guidance-distilled
+(../docs/editors.md list 1).
 
 Weights: hf:black-forest-labs/FLUX.2-klein-4B at REVISION, in diffusers format (Flux2KleinPipeline: transformer
 Flux2Transformer2DModel 7.75 GB, text encoder Qwen3ForCausalLM (Qwen3-4B, 36 layers) 8.04 GB, VAE

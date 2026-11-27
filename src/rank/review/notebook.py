@@ -1,4 +1,5 @@
-"""Build a self-contained Kaggle notebook from source; no weights, data, tokens or git files are bundled."""
+"""Builds notebooks/ranking_review.ipynb, a self-contained Kaggle notebook with the code bundled in it; no weights, data,
+tokens or git files are bundled. Usage: python -m src.rank.review.notebook (after source changes)."""
 
 import base64
 import hashlib
@@ -8,7 +9,7 @@ import textwrap
 import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def cell(kind, source):
@@ -21,8 +22,8 @@ def cell(kind, source):
 def build():
     paths = sorted((ROOT / "src").rglob("*.py"))
     paths += sorted((ROOT / "configs").glob("*.toml"))
-    paths += [ROOT / "apps/ranking" / name for name in ("app.py", "requirements.txt", "run_mac.command", "run_windows.bat")]
-    paths += [ROOT / name for name in ("LICENSE", "README.md", "IMPROVE_RANKING.md", "REVIEW_WORKFLOW.md", "requirements/base.txt")]
+    paths += [ROOT / "apps/ranking" / name for name in ("app.py", "run_mac.command", "run_windows.bat")]
+    paths += [ROOT / name for name in ("LICENSE", "README.md", "requirements/base.txt", "requirements/ranking.txt")]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in paths:
@@ -42,12 +43,12 @@ def build():
 
         This notebook bundles the implementation, so an unpublished Git branch is sufficient.
         The default phase imports original ranking results only; it does not start model downloads or training.
-        Run phases in order: **prepare → score → select → human review → merge → apply → retrain → report**.
+        Run phases in order: **prepare -> score -> select -> human review -> merge -> apply -> retrain -> report**.
         Optional second opinions run between score and select. Reviewer adjudications are always human decisions.
 
         Use Save Version to preserve outputs. In the next session attach that saved output as an Input;
         the setup restores it on Kaggle. You do not need to download out.zip to your own machine.
-        Read `REVIEW_WORKFLOW.md` in the bundled code for schemas and command examples.
+        The bundled `README.md` ("Improving ranking labels") describes the loop.
     """), cell("code", """
         ROUND = 1
         PHASE = "prepare"  # prepare, score, select, merge, apply, retrain, report,

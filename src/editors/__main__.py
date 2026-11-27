@@ -1,5 +1,5 @@
-"""Editing model commands (MODEL_LIST.md, all 7 lists). TASK is remove, add_replace, enhance, restore, change_color,
-formatting or open_ended.
+"""Editing model commands (../docs/editors.md, all 7 lists). TASK is remove, add_replace, enhance, restore,
+change_color, formatting or open_ended.
 
     python -m src.editors list                                   registered editors and their tasks
     python -m src.editors info                                   the same as JSON, with downloads and GPUs
@@ -21,7 +21,7 @@ formatting or open_ended.
     python -m src.editors summary                                work/editors/summary.md: every task and model
 
 `--per-editor N` runs each editor on the first N samples it applies to (a quick test of every model);
-`--limit 5` is the smoke run of MODEL_LIST.md; without it every sample of the task (30 by default). Every step
+`--limit 5` is the smoke run of ../docs/editors.md; without it every sample of the task (30 by default). Every step
 resumes where it stopped. Without a GPU, plan, masks, run and score refuse more than a few samples (see
 src/common/device.py).
 """

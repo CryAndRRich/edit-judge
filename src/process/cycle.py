@@ -8,7 +8,7 @@ import logging
 import shutil
 import time
 
-from ..crawl.sources import SOURCES
+from ..crawl.sites import SOURCES
 from ..paths import DATA_DIR
 
 from .build import Builder, prune

@@ -7,7 +7,7 @@ pillow>=10.0
 numpy>=1.26
 requests>=2.32
 torch>=2.2
-# Real-ESRGAN x4plus is loaded with spandrel (MODEL_LIST.md, list 4): the one editing model that runs locally
+# Real-ESRGAN x4plus is loaded with spandrel (../docs/editors.md, list 4): the one editing model that runs locally
 spandrel>=0.4
 # test client for tests/test_pipeline.py
 httpx>=0.27

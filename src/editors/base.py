@@ -12,7 +12,7 @@ Two kinds of editor:
 (e.g. plain code runs on the formatting actions it can do); the runner sets `editor.op` and `editor.plan` before
 each edit(). The tasks of PLANNED_TASKS need a plan for every sample before a run.
 
-Each editor resizes to its own working size (MODEL_LIST.md's settings); the runner resizes the output back to the
+Each editor resizes to its own working size (../docs/editors.md's settings); the runner resizes the output back to the
 original size, so every output can be compared with the original and with the human edits pixel for pixel. An
 edit that changes the size on purpose (crop, extend, enlarge: formatting) sets `keep_size = False`: its output is
 kept as it is and not pasted back.
@@ -29,7 +29,7 @@ Output: work/editors/<model>/<sample id>.png and work/editors/<model>/runs.jsonl
 `settings_version` of the editor (raised when a model's settings change, so its outputs are made again) and, for a mask-based model, the
 same mask (`mask_digest`, grounding.py); an output of a changed mask is made again. A current
 ok, no-mask or n/a sample is not run again; failed and black ones are tried again by the next run. "black" catches
-the fp16 failure of MODEL_LIST.md (black or NaN images). The first sample's time includes CUDA warm-up, so the
+the fp16 failure of ../docs/editors.md (black or NaN images). The first sample's time includes CUDA warm-up, so the
 summary reports the median.
 """
 
