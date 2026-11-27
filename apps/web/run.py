@@ -46,7 +46,8 @@ def main() -> None:
     import uvicorn
     print(f"EditJudge Studio on http://{args.host}:{args.port}  (API docs: /docs)", flush=True)
     uvicorn.run("studio.main:app", host=args.host, port=args.port, reload=args.reload,
-                reload_dirs=[str(ROOT / "studio")] if args.reload else None, log_level=args.log_level)
+                reload_dirs=[str(ROOT / "studio")] if args.reload else None, log_level=args.log_level,
+                access_log=False)       # the page polls a job every 300 ms: no line per request in the log
 
 
 def check(models: list[str] | None) -> None:

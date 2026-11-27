@@ -93,17 +93,48 @@ def prefer_ipv4() -> None:
     socket.getaddrinfo = ipv4_first
 
 
+QUIET_WARNINGS = (               # messages of the libraries that say nothing about our run (log of 2026-11-28)
+    "torch.meshgrid", "xFormers is not available", "The parameter 'pretrained' is deprecated",
+    "Arguments other than a weight enum", "Defaulting to unsafe serialization",
+)
+
+
+def quiet_libraries() -> None:
+    """Keeps the server's log to what matters: no deprecation notices of timm, torch.jit, PEFT, torchvision
+    (FutureWarning), no info-level chatter of transformers and diffusers (a .bin VAE found instead of safetensors,
+    fp16 pipelines moved to RAM, unused config keys), no download or loading progress bars. Errors still show."""
+    import warnings
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    for message in QUIET_WARNINGS:
+        warnings.filterwarnings("ignore", message=f".*{message}")
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    os.environ.setdefault("DIFFUSERS_VERBOSITY", "error")
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    logging.getLogger("accelerate").setLevel(logging.WARNING)    # "We will use 90% of the memory on device 0"
+    try:
+        from diffusers.utils import logging as diffusers_logging
+        from transformers.utils import logging as transformers_logging
+        diffusers_logging.set_verbosity_error()
+        diffusers_logging.disable_progress_bar()          # "Loading pipeline components"
+        transformers_logging.set_verbosity_error()
+        transformers_logging.disable_progress_bar()       # "Loading checkpoint shards"
+    except ImportError:
+        pass
+
+
 def server_defaults() -> None:
     """On the GPU server: IPv4 first (prefer_ipv4), Hugging Face downloads over plain HTTPS (the Xet client has
     its own network code, which the IPv4 order does not reach), and the Hugging Face and torch caches in the
     repository's git-ignored work/ (with everything else of the project: models, outputs) unless HF_HOME /
-    TORCH_HOME say otherwise. Call before any Hugging Face import."""
+    TORCH_HOME say otherwise; then a quiet log (quiet_libraries). Call before any Hugging Face import: the
+    Hugging Face libraries read these variables when they are imported."""
     if use_real():
         prefer_ipv4()
         os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
         cache = REPO_ROOT / "work" / "hf_cache"
         os.environ.setdefault("HF_HOME", str(cache))
         os.environ.setdefault("TORCH_HOME", str(cache / "torch"))
+        quiet_libraries()                     # last: it imports diffusers
 
 
 def free_gb() -> float:
@@ -257,40 +288,68 @@ class EditorStats:
                 log.warning("could not write %s", self.path)
 
 
+STAYS_ON_CPU = "_stays_on_cpu"           # editor attribute: the parts move_to found on the CPU already
+
+
 def move_to(editor, device: str) -> None:
-    """Moves every torch module, tensor and diffusers pipeline an editor holds (its attributes, and theirs one
-    level down: GFPGAN's face helper, ...) to `device`, keeping their dtype."""
+    """Moves every torch module, tensor and diffusers pipeline an editor holds (its attributes, inside plain
+    lists, tuples and dicts, and the attributes of its other objects two levels down: GFPGAN's face helper, ...)
+    to `device`, keeping their dtype. Moving to the CPU records the parts that were on the CPU already (InstructIR's
+    text encoder runs there, as upstream); moving back leaves them there. Containers are rebuilt only when
+    something inside moved, and only plain ones (a diffusers FrozenDict config stays as it is)."""
+    import itertools
     import types
 
     import torch
 
+    to_cpu = device == "cpu"
+    stays = set() if to_cpu else set(getattr(editor, STAYS_ON_CPU, ()))
     seen = set()
 
-    def visit(value, depth: int):
+    def current_device(value) -> str | None:
+        if isinstance(value, torch.Tensor):
+            return value.device.type
+        if isinstance(value, torch.nn.Module):
+            first = next(itertools.chain(value.parameters(), value.buffers()), None)
+            return None if first is None else first.device.type
+        return getattr(getattr(value, "device", None), "type", None)
+
+    def visit(value, path: str, depth: int):
         if id(value) in seen:
             return value
         seen.add(id(value))
-        if isinstance(value, (torch.nn.Module, torch.Tensor)):
+        movable = isinstance(value, (torch.nn.Module, torch.Tensor)) or (
+            hasattr(value, "components") and hasattr(value, "to"))          # a diffusers pipeline
+        if movable:
+            if to_cpu and current_device(value) == "cpu":
+                stays.add(path)
+                return value
+            if path in stays:
+                return value
             return value.to(device)
-        if hasattr(value, "components") and hasattr(value, "to"):          # a diffusers pipeline
-            return value.to(device)
-        if isinstance(value, list):
-            return [visit(item, depth) for item in value]
-        if isinstance(value, tuple):
-            return tuple(visit(item, depth) for item in value)
-        if isinstance(value, dict):
-            return {key: visit(item, depth) for key, item in value.items()}
+        if type(value) in (list, tuple):
+            items = [visit(item, f"{path}[{index}]", depth) for index, item in enumerate(value)]
+            changed = any(new is not old for new, old in zip(items, value))
+            return type(value)(items) if changed else value
+        if type(value) is dict:
+            items = {key: visit(item, f"{path}[{key!r}]", depth) for key, item in value.items()}
+            changed = any(items[key] is not item for key, item in value.items())
+            return items if changed else value
         if depth < 2 and hasattr(value, "__dict__") and not isinstance(value, (type, types.ModuleType)):
             for key, item in list(vars(value).items()):
-                moved = visit(item, depth + 1)
+                moved = visit(item, f"{path}.{key}", depth + 1)
                 if moved is not item:
                     setattr(value, key, moved)
         return value
 
     for key, item in list(vars(editor).items()):
-        moved = visit(item, 1)
+        if key == STAYS_ON_CPU:
+            continue
+        moved = visit(item, key, 1)
         if moved is not item:
             setattr(editor, key, moved)
+    if to_cpu:
+        setattr(editor, STAYS_ON_CPU, stays)
 
 
 class GpuEditors:

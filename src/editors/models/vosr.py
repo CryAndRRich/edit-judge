@@ -97,7 +97,21 @@ class VOSR(Editor):
                 raise RuntimeError(f"VOSR2 expected the qwen VAE, got {args.ae_type}")
             self.vae = AutoencoderKLQwenImage2D.from_pretrained(str(checkpoints / "Qwen-Image-vae-2d"))
             self.vae.to(device).eval()
-            self.encoder = script.load_dinov2(args, device)
+            # torch.hub.load('facebookresearch/dinov2', ...) asks GitHub for the default branch on every load,
+            # although the code is in torch_cache/ (a GitHub 504 failed a load on 2026-11-28): load it from there
+            hub_code = checkpoints / "torch_cache" / "facebookresearch_dinov2_main"
+            hub_load = torch.hub.load
+
+            def local_hub(repo, model_name, *rest, **options):
+                if repo == "facebookresearch/dinov2" and hub_code.is_dir():
+                    return hub_load(str(hub_code), model_name, *rest, **{**options, "source": "local"})
+                return hub_load(repo, model_name, *rest, **options)
+
+            torch.hub.load = local_hub
+            try:
+                self.encoder = script.load_dinov2(args, device)
+            finally:
+                torch.hub.load = hub_load
             model = LightningDiT(
                 input_size=args.resolution // 8, patch_size=args.patch_size, in_channels=2 * 16, out_channels=16,
                 hidden_size=args.dim, depth=args.depth, num_heads=args.num_heads, mlp_ratio=args.mlp_ratio,

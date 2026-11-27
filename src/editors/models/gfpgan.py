@@ -26,7 +26,7 @@ the faces change. Photos without a detected face come back unchanged. No prompt,
 import sys
 
 from ..base import Editor
-from .fetch import release_file
+from .fetch import forget_modules, release_file
 from .lama import download
 
 URL = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"
@@ -99,7 +99,11 @@ class GFPGAN(Editor):
         import torch
 
         from ...paths import MODELS_DIR
-        sys.path.insert(0, str(basicsr_code()))
+        folder = str(basicsr_code())
+        forget_modules("basicsr", "gfpgan", "facexlib")    # another editor's basicsr (CodeFormer, DDColor)
+        if folder in sys.path:
+            sys.path.remove(folder)
+        sys.path.insert(0, folder)                    # first, so basicsr 1.4.2 is the one found
         patch_torchvision()
         from gfpgan import GFPGANer
 

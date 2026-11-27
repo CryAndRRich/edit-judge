@@ -18,7 +18,7 @@ mask; deterministic. Deviation: fp32 always (0.9 GB; fp16 is untested for its sp
 import sys
 
 from ..base import Editor
-from .fetch import repository_code
+from .fetch import forget_modules, repository_code
 
 REPO = "piddnad/DDColor"
 COMMIT = "2adb63f2656ac41cbdf7b894cddd94121a3faf13"
@@ -54,7 +54,11 @@ class DDColor(Editor):
         import torch
         from huggingface_hub import hf_hub_download
 
-        sys.path.insert(0, str(repository_code(REPO, COMMIT)))
+        folder = str(repository_code(REPO, COMMIT))
+        forget_modules("basicsr", "ddcolor")           # another editor's basicsr (CodeFormer, GFPGAN)
+        if folder in sys.path:
+            sys.path.remove(folder)
+        sys.path.insert(0, folder)                    # first, so its own slim basicsr is the one found
         from ddcolor import ColorizationPipeline
         from ddcolor import DDColor as DDColorNet
 

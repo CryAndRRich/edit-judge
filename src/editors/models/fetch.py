@@ -30,6 +30,16 @@ def pipeline_files(repo: str, revision: str | None = None, variant: str | None =
     DiffusionPipeline.download(repo, revision=revision, variant=variant, **passed)
 
 
+def forget_modules(*packages: str) -> None:
+    """Drops `packages` and their submodules from sys.modules, so the next import finds this editor's copy.
+    CodeFormer, GFPGAN and DDColor each bring their own `basicsr`: on Kaggle each model ran in its own process, in
+    the web app they share one, and the first one imported would otherwise serve the others (2026-11-28: DDColor
+    and GFPGAN failed to load after CodeFormer). A model already loaded keeps the modules it imported."""
+    import sys
+    for name in [name for name in sys.modules if name in packages or name.split(".")[0] in packages]:
+        del sys.modules[name]
+
+
 def release_file(url: str, folder, size: int):
     """`url` saved as folder/<its file name> (once; a file of the wrong size is fetched again)."""
     import urllib.request

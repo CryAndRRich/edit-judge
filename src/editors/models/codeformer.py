@@ -28,7 +28,7 @@ returns uint16 when a blended pixel goes above 256, which PIL cannot save. No pr
 import sys
 
 from ..base import Editor
-from .fetch import repository_code
+from .fetch import forget_modules, repository_code
 from .lama import download
 
 REPO = "sczhou/CodeFormer"
@@ -82,6 +82,7 @@ class CodeFormer(Editor):
     def load(self, device: str) -> None:
         import torch
 
+        forget_modules("basicsr", "facelib")           # another editor's basicsr (GFPGAN, DDColor)
         import_repository(repository_code(REPO, COMMIT))
         from basicsr.archs.codeformer_arch import CodeFormer as CodeFormerNet
         from basicsr.utils import img2tensor, tensor2img
