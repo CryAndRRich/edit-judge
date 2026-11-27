@@ -225,8 +225,11 @@ class Jobs:
                     job["understood"].update(english=context.instruction, target=context.target(),
                                              prepare_seconds=context.seconds)
                     job["stage"] = None
+                    self._plan_order(job, key)
                 for candidate in job["candidates"]:
                     await self._run(job, candidate, original, route, folder, context, key)
+                    if self.live is not None:
+                        self.live.unpin(candidate["model"])
             self._rank(job, final=True)
             job["status"] = "done"
             (folder / "result.json").write_text(json.dumps(self.public(job), ensure_ascii=False, indent=1))
@@ -237,6 +240,18 @@ class Jobs:
         except Exception as error:
             log.exception("job %s failed", job["job_id"])
             job["status"], job["error"] = "error", f"{type(error).__name__}: {error}"
+
+    def _plan_order(self, job: dict, key: str | None) -> None:
+        """When the job gets the GPU: every model's expected seconds from where it is now (a cached output: the
+        time it took; on the GPU: the edit; in RAM or on disk: the load too), then the shortest first, which
+        makes the average wait for an edit the shortest. The job's models stay on the GPU until they ran (pin)."""
+        scorer = self.scorer.info()["backend"]
+        for candidate in job["candidates"]:
+            cached = self.results.cached_seconds(key, candidate["model"], live.output_tag(candidate["model"], scorer)) \
+                if key else None
+            candidate["estimate"] = cached or self.live.estimate(candidate["model"]) or candidate["estimate"]
+        job["candidates"].sort(key=lambda candidate: candidate["estimate"])
+        self.live.pin(candidate["model"] for candidate in job["candidates"])
 
     async def _run(self, job: dict, candidate: dict, original, route, folder: Path, context=None,
                    key: str | None = None) -> None:

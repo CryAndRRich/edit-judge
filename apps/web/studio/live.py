@@ -233,6 +233,13 @@ class ResultCache:
                 "seconds": context.seconds, "has_mask": context.mask is not None}
         (folder / "context.json").write_text(json.dumps(data, ensure_ascii=False))
 
+    def cached_seconds(self, key: str, model: str, tag: str) -> float | None:
+        """The seconds a cached output took, or None when it is not cached (only its small JSON is read)."""
+        try:
+            return json.loads((self.folder / key / f"{model}.{tag}.json").read_text())["seconds"]
+        except (OSError, ValueError, KeyError):
+            return None
+
     def load_output(self, key: str, model: str, tag: str):
         """(image, {"seconds", "score"}) or None."""
         from PIL import Image
@@ -361,6 +368,7 @@ class GpuEditors:
         self.on_gpu: OrderedDict[str, tuple[object, float]] = OrderedDict()
         self.in_ram: OrderedDict[str, tuple[object, float]] = OrderedDict()
         self.stats = stats or EditorStats()
+        self.pinned: set[str] = set()          # editors the running request has yet to run: kept on the GPU
 
     def used_gb(self) -> float:
         return sum(size for _, size in self.on_gpu.values())
@@ -389,8 +397,11 @@ class GpuEditors:
         log.info("%s %s (%.1f GB)", name, where, size)
 
     def make_room(self, need_gb: float) -> None:
+        """Takes editors off the GPU until `need_gb` fits: the least recently used first, but the ones the running
+        request still needs (`pinned`) only when nothing else is left."""
         while self.on_gpu and (self.used_gb() + need_gb > self.budget_gb or free_gb() < need_gb + FREE_MARGIN_GB):
-            self.evict(next(iter(self.on_gpu)))
+            unpinned = [name for name in self.on_gpu if name not in self.pinned]
+            self.evict(unpinned[0] if unpinned else next(iter(self.on_gpu)))
 
     def get(self, name: str):
         """The editor `name`, on the GPU."""
@@ -510,6 +521,13 @@ class LiveModels:
 
     def estimate(self, name: str) -> float | None:
         return self.editors.estimate(name)
+
+    def pin(self, names) -> None:
+        """The editors a request will run: not taken off the GPU to make room for each other."""
+        self.editors.pinned = set(names)
+
+    def unpin(self, name: str) -> None:
+        self.editors.pinned.discard(name)
 
     # ------------------------------------------------------------ one request
     def english(self, image_path: Path, request: str) -> str | None:

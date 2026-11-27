@@ -815,9 +815,13 @@ ssh -L 8000:127.0.0.1:8000 user01@<server A>
   have one request each, one per task: remove (two cats, "Xoa cai dieu khien TV khoi anh" in Vietnamese),
   add_replace (walrus, a Santa hat), change_color (fjord, the sky orange, Vietnamese), enhance (dark lioness,
   brighter and sharper, Vietnamese) and formatting (pug, remove the background). `--precompute` (or the first click on each) fills the cache; after that they replay.
-- The progress bars and the Rankings tab use the seconds measured on this GPU (`--check`, then every run), with
-  the load time when the editor is not on the GPU; before any measurement, the benchmark's T4 seconds times
-  `EJ_WEB_SPEEDUP`.
+- The expected seconds of a model are measured on this GPU (`--check`, then every run): the edit, plus the load
+  from RAM or disk when the model is not on the GPU (a cached output: the time it took). The progress bars and
+  the Rankings tab (s/image: the wait for one edit now) use them; before any measurement, the benchmark's T4
+  seconds times `EJ_WEB_SPEEDUP`.
+- When a request gets the GPU, its models are ordered by those seconds, the shortest wait first (the order with
+  the shortest average wait for an edit), and the ones it has yet to run are not taken off the GPU to make room
+  for each other.
 - The editors are checked before they load (does it apply to the request, is there a region), so nothing loads
   for an edit that cannot run. TF32 speeds up the fp32 models. One request runs at a time; another waits.
 

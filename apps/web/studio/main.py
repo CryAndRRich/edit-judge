@@ -134,8 +134,10 @@ async def get_job(job_id: str, request: Request):
 @app.get("/api/rankings")
 async def get_rankings(request: Request):
     live_models = request.app.state.jobs.live
+    # on the GPU server: the wait for one edit now, as measured here (the edit, plus the load when the editor is
+    # in RAM or on disk); elsewhere the benchmark's seconds times EJ_WEB_SPEEDUP
     measured = {} if live_models is None else {
-        name: row["edit_s"] for name, row in live_models.editors.stats.rows.items() if row.get("edit_s")}
+        name: live_models.estimate(name) for name in live_models.editors.stats.rows if live_models.estimate(name)}
     return rankings_view(measured)
 
 

@@ -157,7 +157,7 @@ def downloadable_models() -> list[str]:
 def rankings_view(measured: dict[str, float] | None = None) -> dict:
     """The Rankings tab: every benchmarked model per task, with its place, whether the assistant runs it, its mean
     seconds per image on the benchmark GPU (`seconds`) and on the live GPU (`estimate`: `measured` there, the GPU
-    server's own seconds per edit, else the benchmark's times SPEEDUP)."""
+    server's own wait for one edit now, its load included, else the benchmark's times SPEEDUP)."""
     measured = measured or {}
     tasks = []
     for task, label in TASKS.items():
