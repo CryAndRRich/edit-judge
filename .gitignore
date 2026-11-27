@@ -1,5 +1,5 @@
 # Data: photos of real people and community text. Local only, never commit.
-data/
+/data/
 
 # Secrets (API keys, forum session cookies)
 .env
